@@ -50,6 +50,16 @@ def create_app(yaml_path: str | None = None) -> Flask:
     app.register_blueprint(alerts_bp)
     app.register_blueprint(api_bp)
 
+    # Inject removed_count into every template for the navbar badge
+    @app.context_processor
+    def inject_removed_count():
+        try:
+            from app.models import Printer
+            count = db.session.query(Printer).filter_by(is_active=False).count()
+            return {"removed_count": count}
+        except Exception:
+            return {"removed_count": 0}
+
     # Create tables on first start (idempotent)
     with app.app_context():
         # Import all models so SQLAlchemy knows about them

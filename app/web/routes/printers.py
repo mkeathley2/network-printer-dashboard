@@ -17,7 +17,13 @@ def list_printers():
         .order_by(Printer.display_name, Printer.ip_address)
         .all()
     )
-    return render_template("printers/list.html", printers=printers)
+    removed = (
+        db.session.query(Printer)
+        .filter_by(is_active=False)
+        .order_by(Printer.display_name, Printer.ip_address)
+        .all()
+    )
+    return render_template("printers/list.html", printers=printers, removed=removed)
 
 
 @bp.route("/<int:printer_id>")
@@ -58,18 +64,31 @@ def add():
             return render_template("printers/add.html")
 
         existing = db.session.query(Printer).filter_by(ip_address=ip).first()
-        if existing:
-            flash(f"A printer with IP {ip} already exists.", "warning")
+        if existing and existing.is_active:
+            flash(f"A printer with IP {ip} is already on the dashboard.", "warning")
             return redirect(url_for("printers.detail", printer_id=existing.id))
 
-        printer = Printer(
-            ip_address=ip,
-            display_name=display_name,
-            snmp_community=community,
-            notes=notes,
-        )
-        db.session.add(printer)
-        db.session.commit()
+        if existing and not existing.is_active:
+            # Reactivate a previously removed printer
+            existing.is_active = True
+            if display_name:
+                existing.display_name = display_name
+            if notes:
+                existing.notes = notes
+            existing.snmp_community = community
+            db.session.commit()
+            printer = existing
+            flash(f"Printer {ip} restored to the dashboard.", "success")
+        else:
+            printer = Printer(
+                ip_address=ip,
+                display_name=display_name,
+                snmp_community=community,
+                notes=notes,
+            )
+            db.session.add(printer)
+            db.session.commit()
+            flash(f"Printer {ip} added successfully.", "success")
 
         # Kick off an immediate one-shot poll to populate vendor/model/supplies
         try:
@@ -80,7 +99,6 @@ def add():
         except Exception:
             pass  # Not fatal — will be picked up on next scheduled poll
 
-        flash(f"Printer {ip} added successfully.", "success")
         return redirect(url_for("printers.detail", printer_id=printer.id))
 
     return render_template("printers/add.html")
@@ -106,6 +124,35 @@ def delete(printer_id: int):
     db.session.commit()
     flash(f"Printer {printer.effective_name} removed.", "success")
     return redirect(url_for("printers.list_printers"))
+
+
+@bp.route("/removed")
+def removed():
+    printers = (
+        db.session.query(Printer)
+        .filter_by(is_active=False)
+        .order_by(Printer.display_name, Printer.ip_address)
+        .all()
+    )
+    return render_template("printers/removed.html", printers=printers)
+
+
+@bp.route("/<int:printer_id>/restore", methods=["POST"])
+def restore(printer_id: int):
+    printer = db.get_or_404(Printer, printer_id)
+    printer.is_active = True
+    db.session.commit()
+
+    try:
+        from app.core.database import get_db
+        from app.scanner.poller import poll_single_printer
+        with get_db() as sess:
+            poll_single_printer(printer_id, sess)
+    except Exception:
+        pass
+
+    flash(f"Printer {printer.effective_name} restored to the dashboard.", "success")
+    return redirect(url_for("printers.detail", printer_id=printer_id))
 
 
 @bp.route("/<int:printer_id>/poll", methods=["POST"])

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Removed Printers{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-archive me-2"></i>Removed Printers</h5>
+  <a href="{{ url_for('printers.list_printers') }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back to Printers
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Name / IP</th>
+          <th>Vendor</th>
+          <th>Model</th>
+          <th>Serial</th>
+          <th>Last Seen</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in printers %}
+        <tr>
+          <td>
+            <span class="fw-semibold">{{ p.effective_name }}</span>
+            <div class="text-muted small">{{ p.ip_address }}</div>
+          </td>
+          <td>
+            {% if p.vendor %}
+              <span class="badge bg-secondary">{{ p.vendor | upper }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted small">{{ p.model or '—' }}</td>
+          <td class="text-muted small">{{ p.serial_number or '—' }}</td>
+          <td class="text-muted small">
+            {{ p.last_seen_at.strftime('%Y-%m-%d %H:%M') if p.last_seen_at else 'Never' }}
+          </td>
+          <td class="text-end">
+            <form method="POST" action="{{ url_for('printers.restore', printer_id=p.id) }}"
+                  style="display:inline">
+              <button type="submit" class="btn btn-sm btn-success">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Restore
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">
+            No removed printers.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
