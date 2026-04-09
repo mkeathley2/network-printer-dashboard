@@ -26,6 +26,17 @@
             <input type="text" name="snmp_community" class="form-control"
                    value="{{ printer.snmp_community }}">
           </div>
+          {% if groups %}
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Group</label>
+            <select name="group_id" class="form-select">
+              <option value="">— No group —</option>
+              {% for g in groups %}
+              <option value="{{ g.id }}" {% if printer.group_id == g.id %}selected{% endif %}>{{ g.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
           <div class="mb-3">
             <label class="form-label fw-semibold">Notes</label>
             <textarea name="notes" class="form-control" rows="2">{{ printer.notes or '' }}</textarea>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from flask import Blueprint, render_template
+from flask_login import login_required
 
 from app.core.database import db
 from app.models import AlertEvent, Printer
@@ -9,6 +10,7 @@ bp = Blueprint("alerts", __name__, url_prefix="/alerts")
 
 
 @bp.route("/")
+@login_required
 def log():
     events = (
         db.session.query(AlertEvent, Printer)

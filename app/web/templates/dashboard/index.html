@@ -2,22 +2,88 @@
 {% block title %}Dashboard — Printer Monitor{% endblock %}
 
 {% block content %}
+
+<!-- Summary stat cards -->
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-primary">{{ total }}</div>
+        <div class="small text-muted">Total Printers</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-success">{{ online }}</div>
+        <div class="small text-muted">Online</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-danger">{{ offline }}</div>
+        <div class="small text-muted">Offline</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card text-center border-0 shadow-sm">
+      <div class="card-body py-3">
+        <div class="fs-2 fw-bold text-warning">{{ alerts_today }}</div>
+        <div class="small text-muted">Alerts Today</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="row g-3">
 
   <!-- Left: printer grid -->
   <div class="col-lg-9">
-    <div class="d-flex align-items-center justify-content-between mb-2">
+    <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
       <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Printers
         <span class="badge bg-secondary ms-1">{{ printers|length }}</span>
       </h5>
-      <a href="{{ url_for('printers.add') }}" class="btn btn-sm btn-primary">
-        <i class="bi bi-plus-circle me-1"></i>Add Printer
-      </a>
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        {% if groups %}
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            <i class="bi bi-funnel me-1"></i>
+            {% if active_group_id %}
+              {{ groups | selectattr('id', 'equalto', active_group_id) | map(attribute='name') | first | default('Filter') }}
+            {% else %}
+              All Groups
+            {% endif %}
+          </button>
+          <ul class="dropdown-menu">
+            <li>
+              <a class="dropdown-item {% if not active_group_id %}active{% endif %}"
+                 href="{{ url_for('dashboard.index') }}">All Groups</a>
+            </li>
+            <li><hr class="dropdown-divider"></li>
+            {% for g in groups %}
+            <li>
+              <a class="dropdown-item {% if active_group_id == g.id %}active{% endif %}"
+                 href="{{ url_for('dashboard.index', group=g.id) }}">{{ g.name }}</a>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+        {% endif %}
+        {% if current_user.is_admin %}
+        <a href="{{ url_for('printers.add') }}" class="btn btn-sm btn-primary">
+          <i class="bi bi-plus-circle me-1"></i>Add Printer
+        </a>
+        {% endif %}
+      </div>
     </div>
 
     {% if printers %}
       <div id="printer-grid"
-           hx-get="{{ url_for('api.htmx_printer_cards') }}"
+           hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_group_id %}?group={{ active_group_id }}{% endif %}"
            hx-trigger="every 60s"
            hx-swap="innerHTML">
         {% include "dashboard/_printer_card.html" with context %}
@@ -27,12 +93,14 @@
         <div class="card-body">
           <i class="bi bi-printer display-4 text-muted"></i>
           <p class="mt-3 text-muted">No printers configured yet.</p>
+          {% if current_user.is_admin %}
           <a href="{{ url_for('printers.add') }}" class="btn btn-primary me-2">
             <i class="bi bi-plus-circle me-1"></i>Add Manually
           </a>
           <a href="{{ url_for('discovery.index') }}" class="btn btn-outline-secondary">
             <i class="bi bi-search me-1"></i>Scan Network
           </a>
+          {% endif %}
         </div>
       </div>
     {% endif %}

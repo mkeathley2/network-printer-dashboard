@@ -7,12 +7,14 @@ import threading
 from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request
+from flask_login import login_required
 
 from app.core.database import db, get_db
 from app.models import (
     AlertEvent, DiscoveryScan, DiscoveryResult,
     Printer, SupplySnapshot, TelemetrySnapshot,
 )
+from app.web.routes.auth import admin_required
 
 bp = Blueprint("api", __name__)
 
@@ -21,14 +23,14 @@ bp = Blueprint("api", __name__)
 # HTMX partial: dashboard printer cards (auto-refreshes every 60s)
 # ---------------------------------------------------------------------------
 @bp.route("/htmx/printer-cards")
+@login_required
 def htmx_printer_cards():
-    printers = (
-        db.session.query(Printer)
-        .filter_by(is_active=True)
-        .order_by(Printer.display_name, Printer.ip_address)
-        .all()
-    )
-    # Attach latest supplies to each printer for the card template
+    query = db.session.query(Printer).filter_by(is_active=True)
+    group_id = request.args.get("group", type=int)
+    if group_id:
+        query = query.filter_by(group_id=group_id)
+    printers = query.order_by(Printer.display_name, Printer.ip_address).all()
+
     printer_data = []
     for p in printers:
         latest = (
@@ -53,6 +55,7 @@ def htmx_printer_cards():
 # HTMX partial: supply rows for printer detail page
 # ---------------------------------------------------------------------------
 @bp.route("/htmx/printer/<int:printer_id>/supplies")
+@login_required
 def htmx_printer_supplies(printer_id: int):
     latest = (
         db.session.query(TelemetrySnapshot)
@@ -75,6 +78,7 @@ def htmx_printer_supplies(printer_id: int):
 # HTMX partial: recent alerts for dashboard sidebar
 # ---------------------------------------------------------------------------
 @bp.route("/htmx/alerts/recent")
+@login_required
 def htmx_recent_alerts():
     events = (
         db.session.query(AlertEvent, Printer)
@@ -87,9 +91,10 @@ def htmx_recent_alerts():
 
 
 # ---------------------------------------------------------------------------
-# HTMX: start a CIDR discovery scan (POST)
+# HTMX: start a CIDR discovery scan (POST) — admin only
 # ---------------------------------------------------------------------------
 @bp.route("/htmx/discovery/start", methods=["POST"])
+@admin_required
 def htmx_discovery_start():
     cidr = request.form.get("cidr_range", "").strip()
     community = request.form.get("community", "").strip() or "public"
@@ -106,11 +111,9 @@ def htmx_discovery_start():
     db.session.commit()
     scan_id = scan.id
 
-    # Capture app reference before spawning thread (context can't be passed directly)
     from flask import current_app
     flask_app = current_app._get_current_object()
 
-    # Run scan in background thread so we can return immediately
     def _run():
         with flask_app.app_context():
             try:
@@ -135,6 +138,7 @@ def htmx_discovery_start():
 # HTMX: poll discovery scan results
 # ---------------------------------------------------------------------------
 @bp.route("/htmx/discovery/<int:scan_id>/results")
+@login_required
 def htmx_discovery_results(scan_id: int):
     scan = db.session.get(DiscoveryScan, scan_id)
     if not scan:
@@ -158,6 +162,7 @@ def htmx_discovery_results(scan_id: int):
 # Chart.js JSON: supply level history
 # ---------------------------------------------------------------------------
 @bp.route("/api/history/<int:printer_id>/supplies")
+@login_required
 def api_supply_history(printer_id: int):
     rows = (
         db.session.query(SupplySnapshot)
@@ -165,7 +170,6 @@ def api_supply_history(printer_id: int):
         .order_by(SupplySnapshot.polled_at.asc())
         .all()
     )
-    # Group by supply_index
     series: dict[str, dict] = {}
     for row in rows:
         key = f"{row.supply_index}"
@@ -184,6 +188,7 @@ def api_supply_history(printer_id: int):
 # Chart.js JSON: page count history
 # ---------------------------------------------------------------------------
 @bp.route("/api/history/<int:printer_id>/pages")
+@login_required
 def api_page_history(printer_id: int):
     rows = (
         db.session.query(TelemetrySnapshot)

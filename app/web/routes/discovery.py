@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, render_template
+from flask_login import login_required
 
 from app.core.database import db
 from app.models import DiscoveryScan
@@ -9,6 +10,7 @@ bp = Blueprint("discovery", __name__, url_prefix="/discovery")
 
 
 @bp.route("/")
+@login_required
 def index():
     recent_scans = (
         db.session.query(DiscoveryScan)
