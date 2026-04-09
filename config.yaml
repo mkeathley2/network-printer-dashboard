@@ -1,0 +1,41 @@
+app:
+  port: 7070
+  debug: false
+
+snmp:
+  # Seconds to wait for each SNMP request
+  timeout: 3
+  # Number of retries on timeout
+  retries: 2
+  # Default community string for SNMPv2c discovery and polling
+  community_v2c: "public"
+
+polling:
+  # How often to poll all known printers (minutes)
+  interval_minutes: 60
+  # Max concurrent threads when polling printers
+  poll_workers: 20
+  # Max concurrent threads during CIDR discovery scan
+  discovery_workers: 50
+  # Seconds to wait per IP during discovery sweep (keep low)
+  discovery_timeout: 1
+
+alerts:
+  # Toner/supply level thresholds (percent remaining)
+  toner_warning_pct: 15
+  toner_critical_pct: 5
+  # Drum-specific thresholds (percent remaining)
+  drum_warning_pct: 10
+  drum_critical_pct: 5
+  # Percentage-point jump that counts as a replacement event
+  replacement_jump_threshold: 20
+  # Consecutive poll failures before a printer is marked offline
+  offline_after_failures: 3
+  # Email addresses to send alerts to (list)
+  alert_to:
+    - helpdesk@example.com
+
+discovery:
+  # Default SNMP community string used during CIDR scans
+  default_community: "public"
+  default_snmp_version: "2c"

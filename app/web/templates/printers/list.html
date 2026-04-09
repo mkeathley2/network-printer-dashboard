@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}All Printers{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>All Printers</h5>
+  <a href="{{ url_for('printers.add') }}" class="btn btn-primary btn-sm">
+    <i class="bi bi-plus-circle me-1"></i>Add Printer
+  </a>
+</div>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Status</th>
+          <th>Name / IP</th>
+          <th>Vendor</th>
+          <th>Model</th>
+          <th>Serial</th>
+          <th>Last Seen</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in printers %}
+        <tr>
+          <td>
+            {% if p.is_online %}
+              <span class="badge bg-success">Online</span>
+            {% else %}
+              <span class="badge bg-danger">Offline</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="fw-semibold text-decoration-none">
+              {{ p.effective_name }}
+            </a>
+            <div class="text-muted small">{{ p.ip_address }}</div>
+          </td>
+          <td><span class="badge bg-secondary">{{ p.vendor | upper }}</span></td>
+          <td class="text-muted small">{{ p.model or '—' }}</td>
+          <td class="text-muted small">{{ p.serial_number or '—' }}</td>
+          <td class="text-muted small">
+            {{ p.last_seen_at.strftime('%Y-%m-%d %H:%M') if p.last_seen_at else 'Never' }}
+          </td>
+          <td class="text-end">
+            <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="btn btn-sm btn-outline-primary me-1">
+              <i class="bi bi-arrow-right-circle"></i>
+            </a>
+            <form method="POST" action="{{ url_for('printers.delete', printer_id=p.id) }}"
+                  style="display:inline"
+                  onsubmit="return confirm('Remove {{ p.effective_name }}?')">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted py-4">
+            No printers yet. <a href="{{ url_for('printers.add') }}">Add one</a> or
+            <a href="{{ url_for('discovery.index') }}">scan the network</a>.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

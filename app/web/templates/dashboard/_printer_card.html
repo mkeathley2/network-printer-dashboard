@@ -1,0 +1,102 @@
+{% set warn_pct = 15 %}
+{% set crit_pct = 5 %}
+
+{% if printer_data is defined %}
+  {# Called from HTMX partial endpoint #}
+  {% set items = printer_data %}
+{% else %}
+  {# Called inline from dashboard/index.html on first load #}
+  {% set items = [] %}
+  {% for p in printers %}
+    {# Inline version: supplies not pre-fetched; HTMX will refresh shortly #}
+    {% set _ = items.append({"printer": p, "telemetry": none, "supplies": []}) %}
+  {% endfor %}
+{% endif %}
+
+<div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+{% for item in items %}
+  {% set p = item.printer %}
+  {% set telem = item.telemetry %}
+  {% set supplies = item.supplies %}
+
+  <div class="col">
+    <div class="card card-printer h-100">
+      <div class="card-header d-flex justify-content-between align-items-center py-2">
+        <span>
+          {% if p.is_online %}
+            <span class="status-dot status-online"></span>
+          {% else %}
+            <span class="status-dot status-offline"></span>
+          {% endif %}
+          <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="fw-semibold text-decoration-none text-dark">
+            {{ p.effective_name }}
+          </a>
+        </span>
+        <small class="text-muted">{{ p.vendor | upper }}</small>
+      </div>
+      <div class="card-body py-2">
+        <div class="text-muted small mb-2">
+          {{ p.ip_address }}
+          {% if p.model %} &mdash; {{ p.model }}{% endif %}
+        </div>
+
+        {% if supplies %}
+          {% for s in supplies %}
+            {% if s.level_pct is not none %}
+              {% if s.level_pct <= crit_pct %}
+                {% set bar_class = "bg-danger" %}
+                {% set label_class = "supply-critical" %}
+              {% elif s.level_pct <= warn_pct %}
+                {% set bar_class = "bg-warning" %}
+                {% set label_class = "supply-warning" %}
+              {% else %}
+                {% set bar_class = "bg-success" %}
+                {% set label_class = "supply-ok" %}
+              {% endif %}
+
+              <div class="mb-1">
+                <div class="d-flex justify-content-between small">
+                  <span>{{ (s.supply_color or s.supply_description or 'Supply') | title }}</span>
+                  <span class="{{ label_class }}">{{ s.level_pct }}%</span>
+                </div>
+                <div class="progress" style="height:8px;">
+                  <div class="progress-bar {{ bar_class }}"
+                       style="width: {{ s.level_pct }}%"
+                       role="progressbar"
+                       aria-valuenow="{{ s.level_pct }}"
+                       aria-valuemin="0" aria-valuemax="100">
+                  </div>
+                </div>
+              </div>
+            {% endif %}
+          {% endfor %}
+        {% elif not p.is_online %}
+          <span class="badge bg-danger">Offline</span>
+        {% else %}
+          <span class="text-muted small">No supply data yet</span>
+        {% endif %}
+      </div>
+
+      <div class="card-footer d-flex justify-content-between align-items-center py-1">
+        <small class="text-muted">
+          {% if telem and telem.polled_at %}
+            {{ telem.polled_at.strftime('%m/%d %H:%M') }}
+          {% else %}
+            Never polled
+          {% endif %}
+        </small>
+        <div>
+          <a href="{{ url_for('history.printer_history', printer_id=p.id) }}"
+             class="btn btn-sm btn-link py-0 text-muted" title="History">
+            <i class="bi bi-graph-up"></i>
+          </a>
+          <a href="{{ url_for('printers.detail', printer_id=p.id) }}"
+             class="btn btn-sm btn-link py-0" title="Details">
+            <i class="bi bi-arrow-right-circle"></i>
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+</div>

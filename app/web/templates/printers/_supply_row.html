@@ -1,0 +1,58 @@
+{% set warn_pct = 15 %}
+{% set crit_pct = 5 %}
+
+{% if supplies %}
+  {% for s in supplies %}
+    {% if s.level_pct is not none %}
+      {% if s.level_pct <= crit_pct %}
+        {% set bar_class = "bg-danger" %}
+        {% set label_class = "supply-critical" %}
+      {% elif s.level_pct <= warn_pct %}
+        {% set bar_class = "bg-warning" %}
+        {% set label_class = "supply-warning" %}
+      {% else %}
+        {% set bar_class = "bg-success" %}
+        {% set label_class = "supply-ok" %}
+      {% endif %}
+      <tr>
+        <td class="ps-3">
+          {% if s.supply_color and s.supply_color != 'unknown' %}
+            <span class="me-1"
+              style="display:inline-block;width:12px;height:12px;border-radius:2px;
+                     background:{{ s.supply_color }};border:1px solid #aaa;vertical-align:middle;">
+            </span>
+          {% endif %}
+          {{ s.supply_description or s.supply_color or 'Supply ' ~ s.supply_index }}
+        </td>
+        <td class="text-muted small">{{ s.supply_type or '—' }}</td>
+        <td class="{{ label_class }}">{{ s.level_pct }}%</td>
+        <td>
+          <div class="progress" style="height:10px;">
+            <div class="progress-bar {{ bar_class }}"
+                 style="width:{{ s.level_pct }}%"
+                 role="progressbar"
+                 aria-valuenow="{{ s.level_pct }}"
+                 aria-valuemin="0" aria-valuemax="100">
+            </div>
+          </div>
+        </td>
+      </tr>
+    {% else %}
+      <tr>
+        <td class="ps-3 text-muted">{{ s.supply_description or 'Supply ' ~ s.supply_index }}</td>
+        <td class="text-muted small">{{ s.supply_type or '—' }}</td>
+        <td colspan="2" class="text-muted small">Level unknown</td>
+      </tr>
+    {% endif %}
+  {% endfor %}
+{% else %}
+  <tr>
+    <td colspan="4" class="text-center text-muted py-3">
+      {% if telemetry and not telemetry.is_online %}
+        Printer is offline.
+      {% else %}
+        No supply data available yet — waiting for first poll.
+      {% endif %}
+    </td>
+  </tr>
+{% endif %}

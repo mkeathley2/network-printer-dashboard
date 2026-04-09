@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Alert Log{% endblock %}
+
+{% block content %}
+<h5 class="mb-3"><i class="bi bi-bell me-2"></i>Alert Log</h5>
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th class="ps-3">Time</th>
+          <th>Printer</th>
+          <th>Event</th>
+          <th>Supply</th>
+          <th>Level</th>
+          <th>Email</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event, printer in events %}
+        <tr>
+          <td class="ps-3 text-muted small text-nowrap">
+            {{ event.occurred_at.strftime('%Y-%m-%d %H:%M') }}
+          </td>
+          <td>
+            <a href="{{ url_for('printers.detail', printer_id=printer.id) }}"
+               class="text-decoration-none fw-semibold">
+              {{ printer.effective_name }}
+            </a>
+            <div class="text-muted small">{{ printer.ip_address }}</div>
+          </td>
+          <td>
+            {% set et = event.event_type %}
+            {% if 'critical' in et %}
+              <span class="badge bg-danger">{{ et | replace('_', ' ') | title }}</span>
+            {% elif 'warning' in et %}
+              <span class="badge bg-warning text-dark">{{ et | replace('_', ' ') | title }}</span>
+            {% elif 'replaced' in et %}
+              <span class="badge bg-success">{{ et | replace('_', ' ') | title }}</span>
+            {% elif 'offline' in et %}
+              <span class="badge bg-secondary">{{ et | replace('_', ' ') | title }}</span>
+            {% elif 'online' in et %}
+              <span class="badge bg-info text-dark">{{ et | replace('_', ' ') | title }}</span>
+            {% else %}
+              <span class="badge bg-light text-dark">{{ et | replace('_', ' ') | title }}</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">
+            {% if event.supply_color %}
+              <span style="display:inline-block;width:10px;height:10px;border-radius:2px;
+                           background:{{ event.supply_color }};border:1px solid #aaa;
+                           vertical-align:middle;margin-right:4px;"></span>
+              {{ event.supply_color | title }}
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted small">
+            {% if event.level_pct_at_event is not none %}
+              {{ event.level_pct_at_event }}%
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if event.email_sent %}
+              <span class="badge bg-success" title="{{ event.email_sent_at }}">
+                <i class="bi bi-check-circle"></i> Sent
+              </span>
+            {% else %}
+              <span class="badge bg-light text-muted">No</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">No alert events recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

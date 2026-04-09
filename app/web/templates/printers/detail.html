@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}{{ printer.effective_name }} — Printer Detail{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('printers.list_printers') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h5 class="mb-0">
+    {% if printer.is_online %}
+      <span class="status-dot status-online"></span>
+    {% else %}
+      <span class="status-dot status-offline"></span>
+    {% endif %}
+    {{ printer.effective_name }}
+  </h5>
+  <span class="badge bg-secondary">{{ printer.vendor | upper }}</span>
+  {% if printer.is_online %}
+    <span class="badge bg-success">Online</span>
+  {% else %}
+    <span class="badge bg-danger">Offline</span>
+  {% endif %}
+  <div class="ms-auto d-flex gap-2">
+    <form method="POST" action="{{ url_for('printers.poll_now', printer_id=printer.id) }}">
+      <button class="btn btn-sm btn-outline-primary" title="Poll now">
+        <i class="bi bi-arrow-clockwise me-1"></i>Poll Now
+      </button>
+    </form>
+    <a href="{{ url_for('printers.edit', printer_id=printer.id) }}" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-pencil me-1"></i>Edit
+    </a>
+    <form method="POST" action="{{ url_for('printers.delete', printer_id=printer.id) }}"
+          onsubmit="return confirm('Remove {{ printer.effective_name }} from the dashboard?')">
+      <button type="submit" class="btn btn-sm btn-outline-danger">
+        <i class="bi bi-trash me-1"></i>Remove
+      </button>
+    </form>
+    <a href="{{ url_for('history.printer_history', printer_id=printer.id) }}" class="btn btn-sm btn-outline-info">
+      <i class="bi bi-graph-up me-1"></i>History
+    </a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <!-- Info card -->
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">Printer Info</div>
+      <div class="card-body">
+        <table class="table table-sm table-borderless mb-0">
+          <tr><th class="text-muted w-40">IP Address</th><td>{{ printer.ip_address }}</td></tr>
+          <tr><th class="text-muted">Hostname</th><td>{{ printer.hostname or '—' }}</td></tr>
+          <tr><th class="text-muted">Model</th><td>{{ printer.model or '—' }}</td></tr>
+          <tr><th class="text-muted">Serial</th><td>{{ printer.serial_number or '—' }}</td></tr>
+          <tr><th class="text-muted">Vendor</th><td>{{ printer.vendor | upper }}</td></tr>
+          <tr><th class="text-muted">SNMP Ver.</th><td>v{{ printer.snmp_version }}</td></tr>
+          <tr><th class="text-muted">Community</th><td><code>{{ printer.snmp_community }}</code></td></tr>
+          <tr><th class="text-muted">Added</th><td>{{ printer.added_at.strftime('%Y-%m-%d') }}</td></tr>
+          <tr><th class="text-muted">Last Seen</th>
+              <td>{{ printer.last_seen_at.strftime('%Y-%m-%d %H:%M') if printer.last_seen_at else 'Never' }}</td></tr>
+          {% if latest_telemetry %}
+          <tr><th class="text-muted">Page Count</th>
+              <td>{{ '{:,}'.format(latest_telemetry.page_count) if latest_telemetry.page_count else '—' }}</td></tr>
+          {% endif %}
+        </table>
+        {% if printer.notes %}
+          <hr class="my-2">
+          <p class="small text-muted mb-0">{{ printer.notes }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Supply levels -->
+  <div class="col-md-8">
+    <div class="card h-100">
+      <div class="card-header fw-semibold d-flex justify-content-between">
+        Supply Levels
+        {% if latest_telemetry %}
+          <small class="text-muted fw-normal">
+            Last polled: {{ latest_telemetry.polled_at.strftime('%Y-%m-%d %H:%M') }}
+          </small>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Supply</th>
+              <th>Type</th>
+              <th>Level</th>
+              <th style="width:40%">Bar</th>
+            </tr>
+          </thead>
+          <tbody id="supply-table"
+                 hx-get="{{ url_for('api.htmx_printer_supplies', printer_id=printer.id) }}"
+                 hx-trigger="load, every 60s"
+                 hx-swap="innerHTML">
+            {% include "printers/_supply_row.html" %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

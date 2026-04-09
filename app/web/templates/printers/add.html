@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Add Printer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-plus-circle me-2"></i>Add Printer Manually
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('printers.add') }}">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">IP Address <span class="text-danger">*</span></label>
+            <input type="text" name="ip_address" class="form-control"
+                   placeholder="192.168.1.100" required autofocus>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Display Name</label>
+            <input type="text" name="display_name" class="form-control"
+                   placeholder="e.g. Front Office Laser">
+            <div class="form-text">Leave blank to use hostname or IP.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">SNMP Community String</label>
+            <input type="text" name="snmp_community" class="form-control"
+                   placeholder="public" value="public">
+          </div>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Notes</label>
+            <textarea name="notes" class="form-control" rows="2"
+                      placeholder="Location, notes, etc."></textarea>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-plus-circle me-1"></i>Add Printer
+            </button>
+            <a href="{{ url_for('printers.list_printers') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body text-center text-muted">
+        <i class="bi bi-search me-1"></i>
+        Want to discover printers automatically?
+        <a href="{{ url_for('discovery.index') }}">Scan a network range</a>.
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

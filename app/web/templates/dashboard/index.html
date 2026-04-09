@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Printer Monitor{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+
+  <!-- Left: printer grid -->
+  <div class="col-lg-9">
+    <div class="d-flex align-items-center justify-content-between mb-2">
+      <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Printers
+        <span class="badge bg-secondary ms-1">{{ printers|length }}</span>
+      </h5>
+      <a href="{{ url_for('printers.add') }}" class="btn btn-sm btn-primary">
+        <i class="bi bi-plus-circle me-1"></i>Add Printer
+      </a>
+    </div>
+
+    {% if printers %}
+      <div id="printer-grid"
+           hx-get="{{ url_for('api.htmx_printer_cards') }}"
+           hx-trigger="every 60s"
+           hx-swap="innerHTML">
+        {% include "dashboard/_printer_card.html" with context %}
+      </div>
+    {% else %}
+      <div class="card text-center py-5">
+        <div class="card-body">
+          <i class="bi bi-printer display-4 text-muted"></i>
+          <p class="mt-3 text-muted">No printers configured yet.</p>
+          <a href="{{ url_for('printers.add') }}" class="btn btn-primary me-2">
+            <i class="bi bi-plus-circle me-1"></i>Add Manually
+          </a>
+          <a href="{{ url_for('discovery.index') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-search me-1"></i>Scan Network
+          </a>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: recent alerts sidebar -->
+  <div class="col-lg-3">
+    <h5 class="mb-2"><i class="bi bi-bell me-2"></i>Recent Alerts</h5>
+    <div id="recent-alerts"
+         hx-get="{{ url_for('api.htmx_recent_alerts') }}"
+         hx-trigger="every 60s"
+         hx-swap="innerHTML">
+      {% include "alerts/_recent.html" with context %}
+    </div>
+    <a href="{{ url_for('alerts.log') }}" class="btn btn-sm btn-outline-secondary mt-2 w-100">
+      View all alerts
+    </a>
+  </div>
+
+</div>
+{% endblock %}

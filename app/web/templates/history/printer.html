@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}History — {{ printer.effective_name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .chart-container { position: relative; height: 280px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('printers.detail', printer_id=printer.id) }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i>
+  </a>
+  <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>History — {{ printer.effective_name }}</h5>
+</div>
+
+<div class="row g-3">
+  <!-- Supply level chart -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header fw-semibold">Supply Levels Over Time</div>
+      <div class="card-body">
+        <div class="chart-container">
+          <canvas id="supplyChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Page count chart -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header fw-semibold">Page Count Over Time</div>
+      <div class="card-body">
+        <div class="chart-container">
+          <canvas id="pageChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+const PRINTER_ID = {{ printer.id }};
+
+// Color map for known supply colors
+const COLOR_MAP = {
+  black:   { border: '#212529', bg: 'rgba(33,37,41,0.15)' },
+  cyan:    { border: '#0dcaf0', bg: 'rgba(13,202,240,0.15)' },
+  magenta: { border: '#d63384', bg: 'rgba(214,51,132,0.15)' },
+  yellow:  { border: '#ffc107', bg: 'rgba(255,193,7,0.15)' },
+};
+function colorFor(name) {
+  return COLOR_MAP[name] || { border: '#6c757d', bg: 'rgba(108,117,125,0.15)' };
+}
+
+const commonOptions = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: { legend: { position: 'bottom' } },
+  scales: {
+    x: {
+      type: 'time',
+      time: { tooltipFormat: 'MMM d, HH:mm' },
+      title: { display: true, text: 'Date / Time' }
+    }
+  }
+};
+
+// Supply chart
+fetch(`/api/history/${PRINTER_ID}/supplies`)
+  .then(r => r.json())
+  .then(series => {
+    const datasets = series.map(s => {
+      const c = colorFor(s.color);
+      return {
+        label: s.label,
+        data: s.data,
+        borderColor: c.border,
+        backgroundColor: c.bg,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 2,
+      };
+    });
+    new Chart(document.getElementById('supplyChart'), {
+      type: 'line',
+      data: { datasets },
+      options: {
+        ...commonOptions,
+        scales: {
+          ...commonOptions.scales,
+          y: { min: 0, max: 100, title: { display: true, text: '% Remaining' } }
+        }
+      }
+    });
+  });
+
+// Page count chart
+fetch(`/api/history/${PRINTER_ID}/pages`)
+  .then(r => r.json())
+  .then(data => {
+    new Chart(document.getElementById('pageChart'), {
+      type: 'line',
+      data: {
+        datasets: [{
+          label: 'Total Pages',
+          data: data,
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 2,
+        }]
+      },
+      options: {
+        ...commonOptions,
+        scales: {
+          ...commonOptions.scales,
+          y: { beginAtZero: false, title: { display: true, text: 'Page Count' } }
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}

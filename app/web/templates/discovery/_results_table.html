@@ -1,0 +1,94 @@
+{% set is_running = status == 'running' %}
+
+<div class="card"
+     {% if is_running %}
+     hx-get="{{ url_for('api.htmx_discovery_results', scan_id=scan_id) }}"
+     hx-trigger="every 3s"
+     hx-swap="outerHTML"
+     {% endif %}>
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span class="fw-semibold">
+      <i class="bi bi-broadcast me-1"></i>Scan Results
+      {% if scan %} &mdash; {{ scan.cidr_range }}{% endif %}
+    </span>
+    {% if is_running %}
+      <span class="badge bg-warning text-dark">
+        <span class="spinner-border spinner-border-sm me-1" role="status"></span>Scanning…
+      </span>
+    {% elif status == 'complete' %}
+      <span class="badge bg-success">Complete</span>
+    {% elif status == 'failed' %}
+      <span class="badge bg-danger">Failed</span>
+    {% endif %}
+  </div>
+
+  {% if scan %}
+  <div class="card-body py-2 border-bottom">
+    <small class="text-muted">
+      Probed: <strong>{{ scan.hosts_probed }}</strong> &nbsp;|&nbsp;
+      Found: <strong>{{ scan.hosts_found }}</strong> &nbsp;|&nbsp;
+      Started: {{ scan.started_at.strftime('%H:%M:%S') }}
+      {% if scan.finished_at %} &mdash; Finished: {{ scan.finished_at.strftime('%H:%M:%S') }}{% endif %}
+    </small>
+  </div>
+  {% endif %}
+
+  {% if results %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">IP Address</th>
+          <th>Hostname</th>
+          <th>Vendor</th>
+          <th>Model</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in results %}
+        <tr>
+          <td class="ps-3"><code>{{ r.ip_address }}</code></td>
+          <td class="text-muted small">{{ r.hostname or '—' }}</td>
+          <td>
+            {% if r.vendor_detected %}
+              <span class="badge bg-secondary">{{ r.vendor_detected | upper }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-muted small">{{ r.model_detected or '—' }}</td>
+          <td>
+            {% if r.already_known %}
+              <span class="badge bg-info text-dark">Known</span>
+            {% else %}
+              <span class="badge bg-success">New</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            {% if r.already_known and r.printer_id %}
+              <a href="{{ url_for('printers.detail', printer_id=r.printer_id) }}"
+                 class="btn btn-sm btn-outline-primary">View</a>
+            {% elif not r.already_known %}
+              <form method="POST" action="{{ url_for('printers.add') }}" style="display:inline">
+                <input type="hidden" name="ip_address" value="{{ r.ip_address }}">
+                <input type="hidden" name="display_name" value="{{ r.hostname or '' }}">
+                <input type="hidden" name="snmp_community" value="public">
+                <button type="submit" class="btn btn-sm btn-success">Add</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% elif not is_running %}
+  <div class="card-body text-center text-muted py-4">
+    No SNMP-responsive printers found in this range.
+  </div>
+  {% else %}
+  <div class="card-body text-center text-muted py-4">
+    <span class="spinner-border spinner-border-sm me-2"></span>Scanning hosts…
+  </div>
+  {% endif %}
+</div>
