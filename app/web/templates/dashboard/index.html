@@ -74,6 +74,11 @@
         </div>
         {% endif %}
         {% if current_user.is_admin %}
+        <form method="POST" action="{{ url_for('api.poll_all') }}" style="display:inline">
+          <button type="submit" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-repeat me-1"></i>Poll All
+          </button>
+        </form>
         <a href="{{ url_for('printers.add') }}" class="btn btn-sm btn-primary">
           <i class="bi bi-plus-circle me-1"></i>Add Printer
         </a>
@@ -81,10 +86,10 @@
       </div>
     </div>
 
-    {% if printers %}
+    {% if printer_data %}
       <div id="printer-grid"
            hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_group_id %}?group={{ active_group_id }}{% endif %}"
-           hx-trigger="every 60s"
+           hx-trigger="every 5m"
            hx-swap="innerHTML">
         {% include "dashboard/_printer_card.html" with context %}
       </div>

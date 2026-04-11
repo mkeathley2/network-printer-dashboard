@@ -159,6 +159,30 @@ def htmx_discovery_results(scan_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Poll all printers now (admin only)
+# ---------------------------------------------------------------------------
+@bp.route("/poll-all", methods=["POST"])
+@admin_required
+def poll_all():
+    from flask import current_app, flash, redirect, url_for
+    flask_app = current_app._get_current_object()
+
+    def _run():
+        with flask_app.app_context():
+            try:
+                from app.scanner.poller import poll_all_printers
+                with get_db() as sess:
+                    poll_all_printers(sess)
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception("Manual poll-all failed")
+
+    threading.Thread(target=_run, daemon=True).start()
+    flash("Poll started — data will refresh shortly.", "info")
+    return redirect(url_for("dashboard.index"))
+
+
+# ---------------------------------------------------------------------------
 # Add all new printers from a completed scan
 # ---------------------------------------------------------------------------
 @bp.route("/discovery/<int:scan_id>/add-all", methods=["POST"])

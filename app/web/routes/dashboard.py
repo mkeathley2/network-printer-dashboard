@@ -2,14 +2,36 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from flask import Blueprint, render_template, request
+from flask import Blueprint, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from app.core.database import db
-from app.models import AlertEvent, Printer
+from app.models import AlertEvent, Printer, SupplySnapshot, TelemetrySnapshot
 from app.models.printer import PrinterGroup
 
 bp = Blueprint("dashboard", __name__)
+
+
+def _build_printer_data(printers: list) -> list:
+    """Fetch latest telemetry + supplies for each printer in one pass."""
+    printer_data = []
+    for p in printers:
+        latest = (
+            db.session.query(TelemetrySnapshot)
+            .filter_by(printer_id=p.id)
+            .order_by(TelemetrySnapshot.polled_at.desc())
+            .first()
+        )
+        supplies = []
+        if latest:
+            supplies = (
+                db.session.query(SupplySnapshot)
+                .filter_by(telemetry_id=latest.id)
+                .order_by(SupplySnapshot.supply_index)
+                .all()
+            )
+        printer_data.append({"printer": p, "telemetry": latest, "supplies": supplies})
+    return printer_data
 
 
 @bp.route("/")
@@ -29,16 +51,17 @@ def index():
     groups = db.session.query(PrinterGroup).order_by(PrinterGroup.name).all()
     group_id = request.args.get("group", type=int)
 
-    printers = (
-        db.session.query(Printer)
-        .filter_by(is_active=True)
-        .order_by(Printer.display_name, Printer.ip_address)
-        .all()
-    )
+    query = db.session.query(Printer).filter_by(is_active=True)
+    if group_id:
+        query = query.filter_by(group_id=group_id)
+    printers = query.order_by(Printer.display_name, Printer.ip_address).all()
+
+    # Pre-fetch telemetry so initial render is fully populated (no flash)
+    printer_data = _build_printer_data(printers)
 
     return render_template(
         "dashboard/index.html",
-        printers=printers,
+        printer_data=printer_data,
         total=total,
         online=online,
         offline=total - online,
