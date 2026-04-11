@@ -43,15 +43,28 @@
         {% if supplies %}
           {% for s in supplies %}
             {% if s.level_pct is not none %}
+              {# Critical level always shows red regardless of cartridge color #}
               {% if s.level_pct <= crit_pct %}
-                {% set bar_class = "bg-danger" %}
+                {% set bar_color = "#dc3545" %}
                 {% set label_class = "supply-critical" %}
-              {% elif s.level_pct <= warn_pct %}
-                {% set bar_class = "bg-warning" %}
-                {% set label_class = "supply-warning" %}
               {% else %}
-                {% set bar_class = "bg-success" %}
-                {% set label_class = "supply-ok" %}
+                {# Match bar color to cartridge color #}
+                {% if s.supply_color == "black" %}
+                  {% set bar_color = "#343a40" %}
+                {% elif s.supply_color == "cyan" %}
+                  {% set bar_color = "#0dcaf0" %}
+                {% elif s.supply_color == "magenta" %}
+                  {% set bar_color = "#d63384" %}
+                {% elif s.supply_color == "yellow" %}
+                  {% set bar_color = "#ffc107" %}
+                {% else %}
+                  {% set bar_color = "#198754" %}
+                {% endif %}
+                {% if s.level_pct <= warn_pct %}
+                  {% set label_class = "supply-warning" %}
+                {% else %}
+                  {% set label_class = "supply-ok" %}
+                {% endif %}
               {% endif %}
 
               <div class="mb-1">
@@ -60,8 +73,8 @@
                   <span class="{{ label_class }}">{{ s.level_pct }}%</span>
                 </div>
                 <div class="progress" style="height:8px;">
-                  <div class="progress-bar {{ bar_class }}"
-                       style="width: {{ s.level_pct }}%"
+                  <div class="progress-bar"
+                       style="width: {{ s.level_pct }}%; background-color: {{ bar_color }};"
                        role="progressbar"
                        aria-valuenow="{{ s.level_pct }}"
                        aria-valuemin="0" aria-valuemax="100">

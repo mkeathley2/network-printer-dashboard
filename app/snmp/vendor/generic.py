@@ -199,22 +199,61 @@ def _color_from_desc(desc: str) -> Optional[str]:
 
 
 def _enrich_colors_from_walk(ip, snmp_params, data: PrinterData, timeout, retries) -> None:
-    """Walk the colorant table to get explicit color names if available."""
+    """
+    Walk the colorant table to get explicit color names.
+    Only reads prtMarkerColorantValue (column 4) to avoid overwriting the
+    correct color name with a subsequent status-integer column.
+    OID structure: .43.12.1.1.{col}.1.{colorant_index}
+    """
     colorant_walk = snmp_walk(
         ip, oids.PRT_MARKER_COLORANT_TABLE, snmp_params, timeout=timeout, retries=retries
     )
     colorant_map: dict[int, str] = {}
     for oid_str, value in colorant_walk:
         parts = oid_str.rstrip(".").split(".")
-        if len(parts) < 1 or not value:
+        if len(parts) < 3 or not value:
             continue
         try:
-            idx = int(parts[-1])
-            colorant_map[idx] = normalize_color(str(value))
+            colorant_idx = int(parts[-1])
+            col = int(parts[-3])
         except (ValueError, IndexError):
             continue
+        # col 4 = prtMarkerColorantValue (the actual color name string)
+        if col != 4:
+            continue
+        color = normalize_color(str(value))
+        if color and color != "unknown":
+            colorant_map[colorant_idx] = color
 
-    # Assign colors where we got a match and current color is unknown
+    # Also build supply→colorant mapping from col 3 of the supply table
+    # (prtMarkerSuppliesColorantIndex) so we handle cases where supply
+    # index != colorant index.
+    supply_colorant: dict[int, int] = {}
+    for oid_str, value in snmp_walk(
+        ip, oids.PRT_MARKER_SUPPLIES_TABLE, snmp_params, timeout=timeout, retries=retries
+    ):
+        parts = oid_str.rstrip(".").split(".")
+        if len(parts) < 3:
+            continue
+        try:
+            supply_idx = int(parts[-1])
+            col = int(parts[-3])
+        except (ValueError, IndexError):
+            continue
+        if col == 3 and value is not None:  # prtMarkerSuppliesColorantIndex
+            try:
+                supply_colorant[supply_idx] = int(value)
+            except (ValueError, TypeError):
+                pass
+
+    # Assign colors to supplies
     for supply in data.supplies:
-        if supply.supply_color == "unknown" and supply.supply_index in colorant_map:
+        if supply.supply_color != "unknown":
+            continue
+        # Try via explicit colorant index mapping first
+        c_idx = supply_colorant.get(supply.supply_index)
+        if c_idx and c_idx in colorant_map:
+            supply.supply_color = colorant_map[c_idx]
+        # Fall back to direct supply_index == colorant_index
+        elif supply.supply_index in colorant_map:
             supply.supply_color = colorant_map[supply.supply_index]
