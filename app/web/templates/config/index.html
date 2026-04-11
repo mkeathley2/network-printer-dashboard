@@ -50,6 +50,16 @@
             <input type="number" name="smtp_port" class="form-control" value="{{ smtp.smtp_port or 587 }}" style="width:120px;">
           </div>
           <div class="mb-3">
+            <label class="form-label">Authentication</label>
+            <select name="smtp_auth" class="form-select" style="width:220px;" id="smtpAuthSelect">
+              <option value="starttls" {% if (smtp.smtp_auth or 'starttls') == 'starttls' %}selected{% endif %}>STARTTLS (port 587, recommended)</option>
+              <option value="ssl"      {% if smtp.smtp_auth == 'ssl' %}selected{% endif %}>SSL/TLS (port 465)</option>
+              <option value="none"     {% if smtp.smtp_auth == 'none' %}selected{% endif %}>None (local relay, port 25)</option>
+            </select>
+            <div class="form-text">Use <em>None</em> for an internal mail relay that doesn't require a login.</div>
+          </div>
+          <div id="smtpCredFields">
+          <div class="mb-3">
             <label class="form-label">SMTP Username</label>
             <input type="text" name="smtp_user" class="form-control" value="{{ smtp.smtp_user }}" placeholder="alerts@yourcompany.com">
           </div>
@@ -58,6 +68,16 @@
             <input type="password" name="smtp_password" class="form-control" placeholder="{% if smtp.smtp_password %}(saved — enter new to change){% else %}Enter password{% endif %}">
             <div class="form-text">Leave blank to keep current password.</div>
           </div>
+          </div>
+          <script>
+            (function() {
+              var sel = document.getElementById('smtpAuthSelect');
+              var creds = document.getElementById('smtpCredFields');
+              function toggle() { creds.style.display = sel.value === 'none' ? 'none' : ''; }
+              sel.addEventListener('change', toggle);
+              toggle();
+            })();
+          </script>
           <div class="mb-3">
             <label class="form-label">From Address</label>
             <input type="text" name="smtp_from" class="form-control" value="{{ smtp.smtp_from }}" placeholder="printers@yourcompany.com">

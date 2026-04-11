@@ -13,7 +13,7 @@ from app.web.routes.auth import admin_required
 bp = Blueprint("config", __name__, url_prefix="/config")
 
 # Setting keys stored in SiteSetting table
-SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "alert_to", "helpdesk_email"]
+SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_auth", "smtp_user", "smtp_password", "smtp_from", "alert_to", "helpdesk_email"]
 
 THRESHOLD_WARN_DEFAULT = 15
 THRESHOLD_CRIT_DEFAULT = 5
@@ -112,7 +112,7 @@ def save_thresholds():
 @bp.route("/smtp", methods=["POST"])
 @admin_required
 def save_smtp():
-    for key in ["smtp_host", "smtp_port", "smtp_user", "smtp_from", "alert_to", "helpdesk_email"]:
+    for key in ["smtp_host", "smtp_port", "smtp_auth", "smtp_user", "smtp_from", "alert_to", "helpdesk_email"]:
         _set_setting(key, request.form.get(key, "").strip())
     # Only update password if a new one was supplied
     new_pw = request.form.get("smtp_password", "").strip()

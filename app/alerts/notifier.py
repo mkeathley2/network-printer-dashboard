@@ -53,8 +53,15 @@ def get_smtp_settings() -> dict:
         user = _val("smtp_user", config.smtp.user)
         password = _val("smtp_password", config.smtp.password)
         from_addr = _val("smtp_from", config.smtp.from_addr)
+        auth_mode = _val("smtp_auth", "starttls")   # starttls | ssl | none
         alert_to_raw = _val("alert_to", ",".join(config.alerts.alert_to))
         alert_to = [a.strip() for a in alert_to_raw.split(",") if a.strip()]
+
+        # Enabled when host is set; auth=none doesn't need credentials
+        if auth_mode == "none":
+            enabled = bool(host)
+        else:
+            enabled = bool(host and user and password)
 
         return {
             "host": host,
@@ -62,8 +69,9 @@ def get_smtp_settings() -> dict:
             "user": user,
             "password": password,
             "from_addr": from_addr or user,
+            "auth_mode": auth_mode,
             "alert_to": alert_to,
-            "enabled": bool(host and user and password),
+            "enabled": enabled,
         }
     except Exception as e:
         logger.warning("Could not read SMTP settings from DB, using config: %s", e)
@@ -73,6 +81,7 @@ def get_smtp_settings() -> dict:
             "user": config.smtp.user,
             "password": config.smtp.password,
             "from_addr": config.smtp.from_addr or config.smtp.user,
+            "auth_mode": "starttls",
             "alert_to": config.alerts.alert_to,
             "enabled": config.smtp.enabled,
         }
@@ -94,11 +103,24 @@ def _send_email(subject: str, body_text: str, body_html: str, recipients: list[s
     msg.attach(MIMEText(body_html, "html"))
 
     try:
-        with smtplib.SMTP(smtp["host"], smtp["port"], timeout=15) as server:
-            server.ehlo()
-            server.starttls()
-            server.login(smtp["user"], smtp["password"])
-            server.sendmail(smtp["from_addr"], recipients, msg.as_string())
+        auth_mode = smtp.get("auth_mode", "starttls")
+        if auth_mode == "ssl":
+            # SMTP_SSL — used for port 465
+            with smtplib.SMTP_SSL(smtp["host"], smtp["port"], timeout=15) as server:
+                server.login(smtp["user"], smtp["password"])
+                server.sendmail(smtp["from_addr"], recipients, msg.as_string())
+        elif auth_mode == "none":
+            # Unauthenticated — local relay, no TLS
+            with smtplib.SMTP(smtp["host"], smtp["port"], timeout=15) as server:
+                server.ehlo()
+                server.sendmail(smtp["from_addr"], recipients, msg.as_string())
+        else:
+            # Default: STARTTLS (port 587)
+            with smtplib.SMTP(smtp["host"], smtp["port"], timeout=15) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(smtp["user"], smtp["password"])
+                server.sendmail(smtp["from_addr"], recipients, msg.as_string())
         return True, f"Email sent to {', '.join(recipients)}."
     except Exception as e:
         logger.error("Failed to send email: %s", e)
@@ -138,6 +160,9 @@ def send_test_email() -> tuple[bool, str]:
     """Send a test email to the configured alert_to address. Returns (ok, message)."""
     smtp = get_smtp_settings()
     if not smtp["enabled"]:
+        auth_mode = smtp.get("auth_mode", "starttls")
+        if auth_mode == "none":
+            return False, "SMTP is not configured. Enter a host address first."
         return False, "SMTP is not configured. Enter host, user, and password first."
     if not smtp["alert_to"]:
         return False, "No alert recipients configured. Set the 'Alert Recipients' field first."
