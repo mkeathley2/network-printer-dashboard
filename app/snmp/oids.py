@@ -32,6 +32,9 @@ PRT_MARKER_COLORANT_VALUE       = "1.3.6.1.2.1.43.12.1.1.4.1"   # + .{index}
 # Printer-MIB — page counter (lifetime impressions)
 PRT_MARKER_LIFE_COUNT           = "1.3.6.1.2.1.43.10.2.1.4.1.1"
 
+# Printer-MIB — serial number (prtGeneralSerialNumber, works on most RFC 3805 printers)
+PRT_GENERAL_SERIAL_NUMBER       = "1.3.6.1.2.1.43.5.1.1.17.1"
+
 # prtMarkerSuppliesType values of interest
 SUPPLY_TYPE_TONER   = 3
 SUPPLY_TYPE_INK     = 4

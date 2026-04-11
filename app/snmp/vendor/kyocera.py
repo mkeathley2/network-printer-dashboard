@@ -24,11 +24,25 @@ def enrich(data: PrinterData, snmp_params: dict, timeout: int = 3, retries: int 
     for k, v in result.items():
         k_stripped = k.lstrip(".")
         if k_stripped.startswith(oids.KYOCERA_MODEL.lstrip(".")):
-            if v and not data.model:
-                data.model = str(v).strip()
+            if v:
+                model = str(v).strip()
+                # Always prefer the vendor-specific model over the generic sysDescr value
+                if model:
+                    data.model = model
         elif k_stripped.startswith(oids.KYOCERA_SERIAL.lstrip(".")):
-            if v and not data.serial_number:
-                data.serial_number = str(v).strip()
+            if v:
+                serial = str(v).strip()
+                # Sanity-check: real serial numbers are at least 5 chars.
+                # Values of 1–3 chars are likely status codes, not serials.
+                if len(serial) >= 5:
+                    data.serial_number = serial
+                elif not data.serial_number:
+                    logger.debug(
+                        "Kyocera serial OID returned short value %r for %s — "
+                        "likely a status code, ignoring. "
+                        "Will fall back to prtGeneralSerialNumber.",
+                        serial, data.ip_address,
+                    )
         elif k_stripped.startswith(oids.KYOCERA_PAGE_COUNT.lstrip(".")):
             if v is not None and data.page_count is None:
                 try:
