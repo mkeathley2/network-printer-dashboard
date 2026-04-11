@@ -208,6 +208,26 @@ def set_thresholds(printer_id: int):
     return redirect(url_for("printers.detail", printer_id=printer_id))
 
 
+@bp.route("/<int:printer_id>/resend-alerts", methods=["POST"])
+@admin_required
+def resend_alerts(printer_id: int):
+    printer = db.get_or_404(Printer, printer_id)
+    try:
+        from app.core.database import get_db
+        from app.models import AlertState
+        from app.scanner.poller import poll_single_printer
+        with get_db() as sess:
+            # Clear all alert state flags so the evaluator re-sends on next poll
+            sess.query(AlertState).filter_by(printer_id=printer_id).delete()
+            sess.commit()
+            # Immediately poll so emails go out now rather than waiting
+            poll_single_printer(printer_id, sess)
+        flash("Alert state reset and emails resent for active alerts.", "success")
+    except Exception as e:
+        flash(f"Resend failed: {e}", "danger")
+    return redirect(url_for("printers.detail", printer_id=printer_id))
+
+
 @bp.route("/<int:printer_id>/poll", methods=["POST"])
 @admin_required
 def poll_now(printer_id: int):

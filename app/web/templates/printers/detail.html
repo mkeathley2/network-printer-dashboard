@@ -35,6 +35,12 @@
         <i class="bi bi-arrow-clockwise me-1"></i>Poll Now
       </button>
     </form>
+    <form method="POST" action="{{ url_for('printers.resend_alerts', printer_id=printer.id) }}"
+          onsubmit="return confirm('Reset alert state and resend any active alerts for this printer?')">
+      <button class="btn btn-sm btn-outline-warning" title="Resend alert emails">
+        <i class="bi bi-envelope-arrow-up me-1"></i>Resend Alerts
+      </button>
+    </form>
     <a href="{{ url_for('printers.edit', printer_id=printer.id) }}" class="btn btn-sm btn-outline-secondary">
       <i class="bi bi-pencil me-1"></i>Edit
     </a>
