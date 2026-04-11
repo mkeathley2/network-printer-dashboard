@@ -6,6 +6,7 @@ After the generic probe, vendor-specific modules may enrich the result.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 from app.snmp import oids
@@ -17,13 +18,37 @@ from app.snmp.normalizer import (
 
 logger = logging.getLogger(__name__)
 
+# Maps enterprise OID number (string) → vendor name
+_ENTERPRISE_VENDOR_MAP = {
+    "11":   "hp",
+    "2435": "brother",
+    "1602": "canon",
+    "1347": "kyocera",
+}
+
+# One well-known OID per vendor, used for last-resort detection when
+# sysDescr / sysObjectID don't respond.
+_VENDOR_PROBE_OIDS = {
+    "kyocera": oids.KYOCERA_PAGE_COUNT,
+    "hp":      oids.HP_SERIAL_NUMBER,
+}
+
 
 def _detect_vendor(sysoid_value: Optional[str], sysdescr: Optional[str]) -> str:
     """Detect vendor from sysObjectID prefix, with sysDescr fallback."""
     if sysoid_value:
+        # Standard dotted-decimal OID (1.3.6.1.4.1.XXXX...)
         for prefix, vendor in oids.VENDOR_OID_PREFIXES.items():
             if sysoid_value.startswith(prefix):
                 return vendor
+        # Symbolic format returned by some pysnmp builds:
+        # e.g. "SNMPv2-SMI::enterprises.1347.41" or "enterprises.1347.41"
+        m = re.search(r'enterprises\.(\d+)', sysoid_value)
+        if m:
+            vendor = _ENTERPRISE_VENDOR_MAP.get(m.group(1))
+            if vendor:
+                return vendor
+
     # Fallback: check sysDescr string
     if sysdescr:
         descr_lower = sysdescr.lower()
@@ -35,6 +60,21 @@ def _detect_vendor(sysoid_value: Optional[str], sysdescr: Optional[str]) -> str:
             return "canon"
         if "kyocera" in descr_lower or "ecosys" in descr_lower:
             return "kyocera"
+    return "generic"
+
+
+def _detect_vendor_by_enterprise_probe(
+    ip: str, snmp_params: dict, timeout: int, retries: int
+) -> str:
+    """
+    Last-resort vendor detection: probe a known OID from each vendor's
+    enterprise tree. Used when sysDescr / sysObjectID are unavailable.
+    """
+    for vendor, probe_oid in _VENDOR_PROBE_OIDS.items():
+        result = snmp_get(ip, [probe_oid], snmp_params, timeout=timeout, retries=retries)
+        if result:
+            logger.debug("Detected vendor %r for %s via enterprise OID probe", vendor, ip)
+            return vendor
     return "generic"
 
 
@@ -75,6 +115,11 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
     serial_val   = _first_val(sys_result, oids.PRT_GENERAL_SERIAL_NUMBER)
 
     data.vendor = _detect_vendor(sysoid_val, sysdescr_val)
+
+    # If standard detection failed, probe vendor-specific enterprise OIDs
+    if data.vendor == "generic":
+        data.vendor = _detect_vendor_by_enterprise_probe(ip, snmp_params, timeout, retries)
+
     data.sysname = sysname_val
     data.model = _extract_model_from_descr(sysdescr_val)
     if serial_val:
@@ -182,19 +227,40 @@ def _parse_supply_walk(walk_rows: list) -> list[SupplyData]:
         )
         result.append(sd)
 
+    # If there is exactly one toner cartridge with unknown color, it must be black
+    # (mono laser printers have a single black cartridge with no color marker)
+    toner_unknown = [s for s in result if s.supply_type == "tonerCartridge" and s.supply_color == "unknown"]
+    if len(toner_unknown) == 1:
+        toner_unknown[0].supply_color = "black"
+
     return result
 
 
 def _color_from_desc(desc: str) -> Optional[str]:
-    """Infer color name from supply description string."""
+    """
+    Infer color name from supply description string.
+    Handles full color words AND single-letter model suffixes
+    (e.g. TK-5242C → cyan, TK-5242K → black).
+    """
     if not desc:
         return None
     low = desc.lower()
+
+    # Full color words anywhere in the description
     for color in ("black", "cyan", "magenta", "yellow"):
         if color in low:
             return color
+
+    # Isolated single letter " k " / trailing " k" / leading "k "
     if " k " in low or low.endswith(" k") or low.startswith("k "):
         return "black"
+
+    # Model-number letter suffix: a C/M/Y/K preceded by a digit or hyphen
+    # e.g. TK-5242C, TK-5242M, TK-5242Y, TK-5242K
+    m = re.search(r'[-\d]([cmyk])$', low)
+    if m:
+        return {"c": "cyan", "m": "magenta", "y": "yellow", "k": "black"}[m.group(1)]
+
     return None
 
 
