@@ -63,6 +63,22 @@ def _probe_printer(printer: Printer) -> PrinterData:
         timeout=config.snmp.timeout,
         retries=config.snmp.retries,
     )
+
+    # If v2c probe got no response, retry with v1 (some devices, e.g. Canon MF series,
+    # only support SNMPv1). If v1 succeeds, save the version so future polls skip the retry.
+    if not data.is_online and snmp_params.get("version") == "2c":
+        snmp_params_v1 = {**snmp_params, "version": "1"}
+        data_v1 = generic_probe.probe(
+            printer.ip_address,
+            snmp_params_v1,
+            timeout=config.snmp.timeout,
+            retries=config.snmp.retries,
+        )
+        if data_v1.is_online:
+            data = data_v1
+            printer.snmp_version = "1"
+            logger.info("Printer %s responded to SNMPv1; saved version.", printer.ip_address)
+
     # Apply vendor enrichment
     if data.is_online and data.vendor in _VENDOR_ENRICH:
         try:
