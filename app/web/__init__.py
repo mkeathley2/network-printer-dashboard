@@ -87,6 +87,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
         _run_migrations()
         logger.info("Database tables verified/created.")
         _seed_admin()
+        _cleanup_stuck_scans()
 
     logger.info("Application created. Listening on port %d", cfg.app.port)
     return app
@@ -156,3 +157,12 @@ def _seed_admin() -> None:
     db.session.add(admin)
     db.session.commit()
     logger.info("Default admin user created (username: admin, password: admin)")
+
+
+def _cleanup_stuck_scans() -> None:
+    """Mark any scans still 'running' as 'failed' — they were orphaned by a server restart."""
+    from app.models import DiscoveryScan
+    updated = db.session.query(DiscoveryScan).filter_by(status="running").update({"status": "failed"})
+    if updated:
+        db.session.commit()
+        logger.info("Marked %d orphaned discovery scan(s) as failed.", updated)

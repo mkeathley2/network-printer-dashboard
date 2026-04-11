@@ -189,6 +189,21 @@ def poll_all():
 
 
 # ---------------------------------------------------------------------------
+# Delete a discovery scan and its results
+# ---------------------------------------------------------------------------
+@bp.route("/discovery/<int:scan_id>/delete", methods=["POST"])
+@admin_required
+def discovery_delete_scan(scan_id: int):
+    from app.models import DiscoveryResult
+    db.session.query(DiscoveryResult).filter_by(scan_id=scan_id).delete()
+    scan = db.session.get(DiscoveryScan, scan_id)
+    if scan:
+        db.session.delete(scan)
+    db.session.commit()
+    return "", 200
+
+
+# ---------------------------------------------------------------------------
 # Add all new printers from a completed scan
 # ---------------------------------------------------------------------------
 @bp.route("/discovery/<int:scan_id>/add-all", methods=["POST"])

@@ -21,6 +21,15 @@ from app.snmp.client import _build_auth, _coerce_value
 logger = logging.getLogger(__name__)
 
 
+# Keywords in sysDescr that indicate a non-printer SNMP device (UPS, PDU, etc.)
+_NON_PRINTER_KEYWORDS = frozenset({
+    "ups", "uninterruptible", "power supply", "battery backup",
+    "apc ", "schneider", "eaton ", "liebert", "powerware",
+    "network management card", "smart-ups", "symmetra",
+    "powerchute", "nmc",
+})
+
+
 async def _probe_ip_async(
     ip: str,
     community: str,
@@ -37,20 +46,28 @@ async def _probe_ip_async(
     async with semaphore:
         try:
             engine = SnmpEngine()
-            auth = CommunityData(community, mpModel=1)
             transport = await UdpTransportTarget.create(
                 (ip, 161), timeout=timeout, retries=0
             )
-            error_indication, error_status, _, var_binds = await get_cmd(
-                engine,
-                auth,
-                transport,
-                ContextData(),
-                ObjectType(ObjectIdentity(oids.SYSDESCR)),
-                ObjectType(ObjectIdentity(oids.SYSOID)),
-                ObjectType(ObjectIdentity(oids.SYSNAME)),
-            )
-            if error_indication or error_status:
+
+            # Try SNMPv2c first, fall back to SNMPv1 (e.g. Canon with only v1 enabled)
+            var_binds = None
+            for mp_model in (1, 0):
+                auth = CommunityData(community, mpModel=mp_model)
+                error_indication, error_status, _, vbs = await get_cmd(
+                    engine,
+                    auth,
+                    transport,
+                    ContextData(),
+                    ObjectType(ObjectIdentity(oids.SYSDESCR)),
+                    ObjectType(ObjectIdentity(oids.SYSOID)),
+                    ObjectType(ObjectIdentity(oids.SYSNAME)),
+                )
+                if not error_indication and not error_status:
+                    var_binds = vbs
+                    break
+
+            if var_binds is None:
                 return None
 
             values = {}
@@ -65,6 +82,12 @@ async def _probe_ip_async(
             sysname  = next((v for k, v in values.items() if oids.SYSNAME.lstrip('.')  in k.lstrip('.')), None)
 
             if not sysdescr:
+                return None
+
+            # Skip non-printer devices (UPS, PDU, etc.)
+            descr_lower = sysdescr.lower()
+            if any(kw in descr_lower for kw in _NON_PRINTER_KEYWORDS):
+                logger.debug("Skipping non-printer device at %s: %s", ip, sysdescr[:80])
                 return None
 
             vendor = _detect_vendor(sysoid, sysdescr)

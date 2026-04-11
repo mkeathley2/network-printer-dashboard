@@ -95,7 +95,7 @@ class Printer(Base):
 
     @property
     def effective_name(self) -> str:
-        return self.display_name or self.hostname or self.ip_address
+        return self.sql_number or self.display_name or self.hostname or self.ip_address
 
     def __repr__(self) -> str:
         return f"<Printer {self.ip_address} {self.model!r}>"

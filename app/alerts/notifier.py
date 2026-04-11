@@ -200,6 +200,21 @@ def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str) -> tu
     model = printer.model or "Unknown"
     vendor = (printer.vendor or "").upper()
 
+    # Optional asset/assignment fields
+    location_name = printer.location.name if getattr(printer, "location", None) else None
+    extra_text = ""
+    extra_html = ""
+    for field_label, value in (
+        ("Location",  location_name),
+        ("Person",    getattr(printer, "assigned_person", None)),
+        ("SQL #",     getattr(printer, "sql_number", None)),
+        ("Computer",  getattr(printer, "assigned_computer", None)),
+        ("Ext.",      getattr(printer, "phone_ext", None)),
+    ):
+        if value:
+            extra_text += f"{field_label:<13}: {value}\n"
+            extra_html += f"<tr><td><strong>{field_label}</strong></td><td>{value}</td></tr>"
+
     # Build supply rows
     supply_rows_text = ""
     supply_rows_html = ""
@@ -232,7 +247,7 @@ IP Address   : {printer.ip_address}
 Vendor       : {vendor}
 Model        : {model}
 Status       : {status}
-
+{extra_text}
 Supply Levels:
 {supply_rows_text or '  No supply data available.'}
 {note_section}
@@ -249,6 +264,7 @@ This ticket was created from the Network Printer Dashboard.
     <tr><td><strong>Vendor</strong></td><td>{vendor}</td></tr>
     <tr><td><strong>Model</strong></td><td>{model}</td></tr>
     <tr><td><strong>Status</strong></td><td>{"<span style='color:green'>Online</span>" if printer.is_online else "<span style='color:red'>Offline</span>"}</td></tr>
+    {extra_html}
   </table>
   <h3>Supply Levels</h3>
   <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse;border-color:#dee2e6;">
@@ -287,6 +303,21 @@ def _build_alert_message(event_type, printer, supply, level_pct):
         if level_pct is not None:
             supply_info_html += f"<tr><td><strong>Level Remaining</strong></td><td>{pct_str}</td></tr>"
 
+    # Optional asset/assignment fields
+    location_name = printer.location.name if getattr(printer, "location", None) else None
+    extra_text = ""
+    extra_html = ""
+    for field_label, value in (
+        ("Location",  location_name),
+        ("Person",    getattr(printer, "assigned_person", None)),
+        ("SQL #",     getattr(printer, "sql_number", None)),
+        ("Computer",  getattr(printer, "assigned_computer", None)),
+        ("Ext.",      getattr(printer, "phone_ext", None)),
+    ):
+        if value:
+            extra_text += f"{field_label:<13}: {value}\n"
+            extra_html += f"<tr><td><strong>{field_label}</strong></td><td>{value}</td></tr>"
+
     subject = f"[Printer Alert] {label} — {printer_name}"
 
     body_text = f"""\
@@ -295,7 +326,7 @@ Printer Alert: {label}
 Printer Name : {printer_name}
 IP Address   : {printer_ip}
 Model        : {printer_model}
-{supply_info}
+{extra_text}{supply_info}
 
 This is an automated message from the Network Printer Dashboard.
 """
@@ -308,6 +339,7 @@ This is an automated message from the Network Printer Dashboard.
     <tr><td><strong>Printer Name</strong></td><td>{printer_name}</td></tr>
     <tr><td><strong>IP Address</strong></td><td>{printer_ip}</td></tr>
     <tr><td><strong>Model</strong></td><td>{printer_model}</td></tr>
+    {extra_html}
     {supply_info_html}
   </table>
   <hr/>

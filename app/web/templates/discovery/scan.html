@@ -36,23 +36,37 @@
     {% if recent_scans %}
     <div class="card mt-3">
       <div class="card-header fw-semibold">Recent Scans</div>
-      <div class="list-group list-group-flush">
+      <div class="list-group list-group-flush" id="recent-scans-list">
         {% for scan in recent_scans %}
-        <a href="#" class="list-group-item list-group-item-action py-2"
-           hx-get="{{ url_for('api.htmx_discovery_results', scan_id=scan.id) }}"
-           hx-target="#discovery-results"
-           hx-swap="innerHTML">
-          <div class="d-flex justify-content-between">
-            <span class="small fw-semibold">{{ scan.cidr_range or scan.manual_ip }}</span>
-            <span class="badge bg-{% if scan.status == 'complete' %}success{% elif scan.status == 'failed' %}danger{% else %}warning{% endif %}">
-              {{ scan.status }}
-            </span>
+        <div class="list-group-item py-2 px-3" id="scan-{{ scan.id }}">
+          <div class="d-flex align-items-center gap-2">
+            <div class="flex-grow-1" style="cursor:pointer;"
+                 hx-get="{{ url_for('api.htmx_discovery_results', scan_id=scan.id) }}"
+                 hx-target="#discovery-results"
+                 hx-swap="innerHTML">
+              <div class="d-flex justify-content-between align-items-center">
+                <span class="small fw-semibold">{{ scan.cidr_range or scan.manual_ip }}</span>
+                <span class="badge bg-{% if scan.status == 'complete' %}success{% elif scan.status == 'failed' %}danger{% else %}warning text-dark{% endif %} ms-2">
+                  {{ scan.status }}
+                </span>
+              </div>
+              <div class="text-muted small">
+                {{ scan.started_at.strftime('%Y-%m-%d %H:%M') }} &mdash;
+                {{ scan.hosts_found }}/{{ scan.hosts_probed }} found
+              </div>
+            </div>
+            {% if current_user.is_admin %}
+            <button class="btn btn-link btn-sm text-danger p-0 flex-shrink-0"
+                    title="Remove from history"
+                    hx-post="{{ url_for('api.discovery_delete_scan', scan_id=scan.id) }}"
+                    hx-target="#scan-{{ scan.id }}"
+                    hx-swap="outerHTML"
+                    hx-confirm="Remove this scan from history?">
+              <i class="bi bi-x-lg"></i>
+            </button>
+            {% endif %}
           </div>
-          <div class="text-muted small">
-            {{ scan.started_at.strftime('%Y-%m-%d %H:%M') }} &mdash;
-            {{ scan.hosts_found }}/{{ scan.hosts_probed }} found
-          </div>
-        </a>
+        </div>
         {% endfor %}
       </div>
     </div>
