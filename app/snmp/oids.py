@@ -16,6 +16,7 @@ SYSLOCATION     = "1.3.6.1.2.1.1.6.0"
 
 # HOST-RESOURCES-MIB (RFC 2790)
 HR_DEVICE_STATUS            = "1.3.6.1.2.1.25.3.2.1.5.1"
+HR_DEVICE_DESCR             = "1.3.6.1.2.1.25.3.2.1.3.1"   # clean model name on most printers
 HR_PRINTER_DETECTED_ERRORS  = "1.3.6.1.2.1.25.3.5.1.2.1"
 
 # Printer-MIB (RFC 3805) — supply table base OIDs (use as WALK prefix)

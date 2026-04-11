@@ -92,6 +92,7 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
         oids.SYSUPTIME,
         oids.SYSNAME,
         oids.HR_DEVICE_STATUS,
+        oids.HR_DEVICE_DESCR,
         oids.HR_PRINTER_DETECTED_ERRORS,
         oids.PRT_MARKER_LIFE_COUNT,
         oids.PRT_GENERAL_SERIAL_NUMBER,
@@ -114,6 +115,8 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
 
     serial_val   = _first_val(sys_result, oids.PRT_GENERAL_SERIAL_NUMBER)
 
+    hr_device_descr_val = _first_val(sys_result, oids.HR_DEVICE_DESCR)
+
     data.vendor = _detect_vendor(sysoid_val, sysdescr_val)
 
     # If standard detection failed, probe vendor-specific enterprise OIDs
@@ -121,7 +124,13 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
         data.vendor = _detect_vendor_by_enterprise_probe(ip, snmp_params, timeout, retries)
 
     data.sysname = sysname_val
-    data.model = _extract_model_from_descr(sysdescr_val)
+
+    # Model: hrDeviceDescr (standard MIB) returns a clean model name on most printers
+    # and is more reliable than parsing sysDescr. Vendor enrich may override later.
+    if hr_device_descr_val:
+        data.model = str(hr_device_descr_val).strip() or None
+    else:
+        data.model = _extract_model_from_descr(sysdescr_val)
     if serial_val:
         data.serial_number = str(serial_val).strip() or None
     data.status_raw = str(status_val) if status_val is not None else None
