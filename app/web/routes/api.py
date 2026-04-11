@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 
 from flask import Blueprint, jsonify, render_template, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.core.database import db, get_db
 from app.models import (
