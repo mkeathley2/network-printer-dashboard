@@ -45,29 +45,29 @@
   <div class="col-lg-9">
     <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
       <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Printers
-        <span class="badge bg-secondary ms-1">{{ printers|length }}</span>
+        <span class="badge bg-secondary ms-1">{{ printer_data|length }}</span>
       </h5>
       <div class="d-flex gap-2 align-items-center flex-wrap">
-        {% if groups %}
+        {% if locations %}
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-            <i class="bi bi-funnel me-1"></i>
-            {% if active_group_id %}
-              {{ groups | selectattr('id', 'equalto', active_group_id) | map(attribute='name') | first | default('Filter') }}
+            <i class="bi bi-geo-alt me-1"></i>
+            {% if active_location_id %}
+              {{ locations | selectattr('id', 'equalto', active_location_id) | map(attribute='name') | first | default('Filter') }}
             {% else %}
-              All Groups
+              All Locations
             {% endif %}
           </button>
           <ul class="dropdown-menu">
             <li>
-              <a class="dropdown-item {% if not active_group_id %}active{% endif %}"
-                 href="{{ url_for('dashboard.index') }}">All Groups</a>
+              <a class="dropdown-item {% if not active_location_id %}active{% endif %}"
+                 href="{{ url_for('dashboard.index') }}">All Locations</a>
             </li>
             <li><hr class="dropdown-divider"></li>
-            {% for g in groups %}
+            {% for loc in locations %}
             <li>
-              <a class="dropdown-item {% if active_group_id == g.id %}active{% endif %}"
-                 href="{{ url_for('dashboard.index', group=g.id) }}">{{ g.name }}</a>
+              <a class="dropdown-item {% if active_location_id == loc.id %}active{% endif %}"
+                 href="{{ url_for('dashboard.index', location=loc.id) }}">{{ loc.name }}</a>
             </li>
             {% endfor %}
           </ul>
@@ -88,7 +88,7 @@
 
     {% if printer_data %}
       <div id="printer-grid"
-           hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_group_id %}?group={{ active_group_id }}{% endif %}"
+           hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_location_id %}?location={{ active_location_id }}{% endif %}"
            hx-trigger="every 5m"
            hx-swap="innerHTML">
         {% include "dashboard/_printer_card.html" with context %}

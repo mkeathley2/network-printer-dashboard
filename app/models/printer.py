@@ -67,6 +67,18 @@ class Printer(Base):
     group_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("printer_groups.id", ondelete="SET NULL"))
     group: Mapped[Optional[PrinterGroup]] = relationship("PrinterGroup", back_populates="printers")
 
+    # Location (replaces group in UI)
+    location_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    location: Mapped[Optional["Location"]] = relationship("Location", back_populates="printers")  # type: ignore[name-defined]
+
+    # Asset / assignment fields (populated from spreadsheet import or manual entry)
+    assigned_person: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    sql_number: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    assigned_computer: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    phone_ext: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    printer_web_username: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    printer_web_password: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
     # Per-printer alert thresholds (NULL = use site-wide default from SiteSetting)
     supply_warn_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     supply_crit_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)

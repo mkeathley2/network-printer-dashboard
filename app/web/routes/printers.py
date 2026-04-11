@@ -5,12 +5,40 @@ from flask_login import current_user, login_required
 
 from app.core.config import config
 from app.core.database import db
-from app.models import Printer, SiteSetting, SupplySnapshot, TelemetrySnapshot
-from app.models.printer import PrinterGroup
+from app.models import Printer, PrinterImportData, SiteSetting, SupplySnapshot, TelemetrySnapshot
+from app.models.location import Location
 from app.web.routes.auth import admin_required
 from app.web.routes.config import get_effective_thresholds
 
 bp = Blueprint("printers", __name__, url_prefix="/printers")
+
+
+def _apply_import_data(printer: Printer) -> bool:
+    """
+    Look up printer IP in printer_import_data. If found, fill any blank fields.
+    Only fills fields that are currently empty — never overwrites manual data.
+    Returns True if a match was found.
+    """
+    row = db.session.get(PrinterImportData, printer.ip_address)
+    if not row:
+        return False
+    if not printer.assigned_person:
+        printer.assigned_person = row.assigned_person
+    if not printer.sql_number:
+        printer.sql_number = row.sql_number
+    if not printer.assigned_computer:
+        printer.assigned_computer = row.assigned_computer
+    if not printer.phone_ext:
+        printer.phone_ext = row.phone_ext
+    if not printer.printer_web_username:
+        printer.printer_web_username = row.printer_web_username
+    if not printer.printer_web_password:
+        printer.printer_web_password = row.printer_web_password
+    if not printer.location_id and row.location_name:
+        loc = db.session.query(Location).filter_by(name=row.location_name).first()
+        if loc:
+            printer.location_id = loc.id
+    return True
 
 
 @bp.route("/")
@@ -68,19 +96,19 @@ def detail(printer_id: int):
 @bp.route("/add", methods=["GET", "POST"])
 @admin_required
 def add():
-    groups = db.session.query(PrinterGroup).order_by(PrinterGroup.name).all()
+    locations = db.session.query(Location).order_by(Location.name).all()
     if request.method == "POST":
         ip = request.form.get("ip_address", "").strip()
         display_name = request.form.get("display_name", "").strip() or None
         community = request.form.get("snmp_community", "").strip() or config.snmp.community_v2c
         notes = request.form.get("notes", "").strip() or None
-        group_id = request.form.get("group_id") or None
-        if group_id:
-            group_id = int(group_id)
+        location_id = request.form.get("location_id") or None
+        if location_id:
+            location_id = int(location_id)
 
         if not ip:
             flash("IP address is required.", "danger")
-            return render_template("printers/add.html", groups=groups)
+            return render_template("printers/add.html", locations=locations)
 
         existing = db.session.query(Printer).filter_by(ip_address=ip).first()
         if existing and existing.is_active:
@@ -94,7 +122,8 @@ def add():
             if notes:
                 existing.notes = notes
             existing.snmp_community = community
-            existing.group_id = group_id
+            existing.location_id = location_id
+            _apply_import_data(existing)
             db.session.commit()
             printer = existing
             flash(f"Printer {ip} restored to the dashboard.", "success")
@@ -104,9 +133,11 @@ def add():
                 display_name=display_name,
                 snmp_community=community,
                 notes=notes,
-                group_id=group_id,
+                location_id=location_id,
             )
             db.session.add(printer)
+            db.session.flush()
+            _apply_import_data(printer)
             db.session.commit()
             flash(f"Printer {ip} added successfully.", "success")
 
@@ -120,24 +151,32 @@ def add():
 
         return redirect(url_for("printers.detail", printer_id=printer.id))
 
-    return render_template("printers/add.html", groups=groups)
+    return render_template("printers/add.html", locations=locations)
 
 
 @bp.route("/<int:printer_id>/edit", methods=["GET", "POST"])
 @admin_required
 def edit(printer_id: int):
     printer = db.get_or_404(Printer, printer_id)
-    groups = db.session.query(PrinterGroup).order_by(PrinterGroup.name).all()
+    locations = db.session.query(Location).order_by(Location.name).all()
     if request.method == "POST":
         printer.display_name = request.form.get("display_name", "").strip() or None
         printer.snmp_community = request.form.get("snmp_community", "").strip() or "public"
         printer.notes = request.form.get("notes", "").strip() or None
-        group_id = request.form.get("group_id") or None
-        printer.group_id = int(group_id) if group_id else None
+        location_id = request.form.get("location_id") or None
+        printer.location_id = int(location_id) if location_id else None
+        printer.assigned_person = request.form.get("assigned_person", "").strip() or None
+        printer.sql_number = request.form.get("sql_number", "").strip() or None
+        printer.assigned_computer = request.form.get("assigned_computer", "").strip() or None
+        printer.phone_ext = request.form.get("phone_ext", "").strip() or None
+        printer.printer_web_username = request.form.get("printer_web_username", "").strip() or None
+        new_pw = request.form.get("printer_web_password", "").strip()
+        if new_pw:
+            printer.printer_web_password = new_pw
         db.session.commit()
         flash("Printer updated.", "success")
         return redirect(url_for("printers.detail", printer_id=printer.id))
-    return render_template("printers/edit.html", printer=printer, groups=groups)
+    return render_template("printers/edit.html", printer=printer, locations=locations)
 
 
 @bp.route("/<int:printer_id>/delete", methods=["POST"])

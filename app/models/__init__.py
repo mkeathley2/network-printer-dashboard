@@ -1,4 +1,6 @@
 from .printer import Printer, PrinterGroup
+from .location import Location
+from .printer_import import PrinterImportData
 from .telemetry import TelemetrySnapshot, SupplySnapshot
 from .alert import AlertEvent, AlertState
 from .discovery import DiscoveryScan, DiscoveryResult
@@ -7,6 +9,8 @@ from .settings import SiteSetting
 
 __all__ = [
     "Printer", "PrinterGroup",
+    "Location",
+    "PrinterImportData",
     "TelemetrySnapshot", "SupplySnapshot",
     "AlertEvent", "AlertState",
     "DiscoveryScan", "DiscoveryResult",

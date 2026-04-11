@@ -26,13 +26,13 @@
             <input type="text" name="snmp_community" class="form-control"
                    value="{{ printer.snmp_community }}">
           </div>
-          {% if groups %}
+          {% if locations %}
           <div class="mb-3">
-            <label class="form-label fw-semibold">Group</label>
-            <select name="group_id" class="form-select">
-              <option value="">— No group —</option>
-              {% for g in groups %}
-              <option value="{{ g.id }}" {% if printer.group_id == g.id %}selected{% endif %}>{{ g.name }}</option>
+            <label class="form-label fw-semibold">Location</label>
+            <select name="location_id" class="form-select">
+              <option value="">— No location —</option>
+              {% for loc in locations %}
+              <option value="{{ loc.id }}" {% if printer.location_id == loc.id %}selected{% endif %}>{{ loc.name }}</option>
               {% endfor %}
             </select>
           </div>
@@ -40,6 +40,43 @@
           <div class="mb-3">
             <label class="form-label fw-semibold">Notes</label>
             <textarea name="notes" class="form-control" rows="2">{{ printer.notes or '' }}</textarea>
+          </div>
+          <hr>
+          <h6 class="text-muted mb-3">Asset & Assignment</h6>
+          <div class="mb-3">
+            <label class="form-label">Assigned Person</label>
+            <input type="text" name="assigned_person" class="form-control"
+                   value="{{ printer.assigned_person or '' }}" placeholder="e.g. Jane Smith">
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-sm-6">
+              <label class="form-label">SQL / Asset Number</label>
+              <input type="text" name="sql_number" class="form-control"
+                     value="{{ printer.sql_number or '' }}" placeholder="e.g. P1096">
+            </div>
+            <div class="col-sm-6">
+              <label class="form-label">Phone Extension</label>
+              <input type="text" name="phone_ext" class="form-control"
+                     value="{{ printer.phone_ext or '' }}" placeholder="e.g. 1234">
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Assigned Computer</label>
+            <input type="text" name="assigned_computer" class="form-control"
+                   value="{{ printer.assigned_computer or '' }}" placeholder="e.g. DESKTOP-ABCD">
+          </div>
+          <hr>
+          <h6 class="text-muted mb-3">Printer Web UI Credentials</h6>
+          <div class="mb-3">
+            <label class="form-label">Web UI Username</label>
+            <input type="text" name="printer_web_username" class="form-control"
+                   value="{{ printer.printer_web_username or '' }}" placeholder="admin">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Web UI Password</label>
+            <input type="password" name="printer_web_password" class="form-control"
+                   placeholder="{% if printer.printer_web_password %}(saved — enter new to change){% else %}Enter password{% endif %}">
+            <div class="form-text">Leave blank to keep current password.</div>
           </div>
           <div class="d-flex gap-2">
             <button type="submit" class="btn btn-primary">Save Changes</button>

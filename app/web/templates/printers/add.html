@@ -26,13 +26,13 @@
             <input type="text" name="snmp_community" class="form-control"
                    placeholder="public" value="public">
           </div>
-          {% if groups %}
+          {% if locations %}
           <div class="mb-3">
-            <label class="form-label fw-semibold">Group</label>
-            <select name="group_id" class="form-select">
-              <option value="">— No group —</option>
-              {% for g in groups %}
-              <option value="{{ g.id }}">{{ g.name }}</option>
+            <label class="form-label fw-semibold">Location</label>
+            <select name="location_id" class="form-select">
+              <option value="">— No location —</option>
+              {% for loc in locations %}
+              <option value="{{ loc.id }}">{{ loc.name }}</option>
               {% endfor %}
             </select>
           </div>

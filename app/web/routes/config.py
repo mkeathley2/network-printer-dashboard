@@ -1,4 +1,4 @@
-"""Admin-only configuration routes: SMTP, Users, Groups."""
+"""Admin-only configuration routes: SMTP, Users, Locations, Import."""
 from __future__ import annotations
 
 from flask import Blueprint, flash, redirect, render_template, request, url_for
@@ -6,7 +6,8 @@ from flask_login import current_user
 from werkzeug.security import generate_password_hash
 
 from app.core.database import db
-from app.models import Printer, SiteSetting, User
+from app.models import Printer, PrinterImportData, SiteSetting, User
+from app.models.location import Location
 from app.models.printer import PrinterGroup
 from app.web.routes.auth import admin_required
 
@@ -58,15 +59,12 @@ def _set_setting(key: str, value: str) -> None:
 def index():
     smtp = {k: _get_setting(k) for k in SMTP_KEYS}
     users = db.session.query(User).order_by(User.username).all()
-    groups = (
-        db.session.query(PrinterGroup)
-        .order_by(PrinterGroup.name)
-        .all()
-    )
-    # Attach printer count to each group
-    group_counts = {}
-    for g in groups:
-        group_counts[g.id] = db.session.query(Printer).filter_by(group_id=g.id, is_active=True).count()
+    locations = db.session.query(Location).order_by(Location.name).all()
+    location_counts = {
+        loc.id: db.session.query(Printer).filter_by(location_id=loc.id, is_active=True).count()
+        for loc in locations
+    }
+    import_count = db.session.query(PrinterImportData).count()
 
     warn_pct = _get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT))
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
@@ -76,8 +74,9 @@ def index():
         "config/index.html",
         smtp=smtp,
         users=users,
-        groups=groups,
-        group_counts=group_counts,
+        locations=locations,
+        location_counts=location_counts,
+        import_count=import_count,
         active_tab=tab,
         warn_pct=warn_pct,
         crit_pct=crit_pct,
@@ -205,32 +204,62 @@ def set_user_role(user_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Group management
+# Location management
 # ---------------------------------------------------------------------------
-@bp.route("/groups/add", methods=["POST"])
+@bp.route("/locations/add", methods=["POST"])
 @admin_required
-def add_group():
+def add_location():
     name = request.form.get("name", "").strip()
     description = request.form.get("description", "").strip() or None
     if not name:
-        flash("Group name is required.", "danger")
-        return redirect(url_for("config.index", tab="groups"))
-    if db.session.query(PrinterGroup).filter_by(name=name).first():
-        flash(f"Group '{name}' already exists.", "danger")
-        return redirect(url_for("config.index", tab="groups"))
-    db.session.add(PrinterGroup(name=name, description=description))
+        flash("Location name is required.", "danger")
+        return redirect(url_for("config.index", tab="locations"))
+    if db.session.query(Location).filter_by(name=name).first():
+        flash(f"Location '{name}' already exists.", "danger")
+        return redirect(url_for("config.index", tab="locations"))
+    db.session.add(Location(name=name, description=description))
     db.session.commit()
-    flash(f"Group '{name}' created.", "success")
-    return redirect(url_for("config.index", tab="groups"))
+    flash(f"Location '{name}' created.", "success")
+    return redirect(url_for("config.index", tab="locations"))
 
 
-@bp.route("/groups/<int:group_id>/delete", methods=["POST"])
+@bp.route("/locations/<int:location_id>/delete", methods=["POST"])
 @admin_required
-def delete_group(group_id: int):
-    group = db.get_or_404(PrinterGroup, group_id)
-    # Unassign printers (FK is SET NULL on delete, but let's be explicit)
-    db.session.query(Printer).filter_by(group_id=group_id).update({"group_id": None})
-    db.session.delete(group)
+def delete_location(location_id: int):
+    location = db.get_or_404(Location, location_id)
+    db.session.query(Printer).filter_by(location_id=location_id).update({"location_id": None})
+    db.session.delete(location)
     db.session.commit()
-    flash(f"Group '{group.name}' deleted.", "success")
-    return redirect(url_for("config.index", tab="groups"))
+    flash(f"Location '{location.name}' deleted.", "success")
+    return redirect(url_for("config.index", tab="locations"))
+
+
+# ---------------------------------------------------------------------------
+# Spreadsheet import
+# ---------------------------------------------------------------------------
+@bp.route("/import-spreadsheet", methods=["POST"])
+@admin_required
+def import_spreadsheet():
+    f = request.files.get("spreadsheet")
+    if not f or not f.filename:
+        flash("No file selected.", "danger")
+        return redirect(url_for("config.index", tab="import"))
+    if not f.filename.lower().endswith(".xlsx"):
+        flash("Only .xlsx files are supported.", "danger")
+        return redirect(url_for("config.index", tab="import"))
+
+    from app.utils.spreadsheet_import import import_printer_spreadsheet
+    result = import_printer_spreadsheet(f.read())
+
+    if result["errors"]:
+        for err in result["errors"][:5]:
+            flash(err, "warning")
+
+    locs = ", ".join(result["locations"]) if result["locations"] else "none"
+    flash(
+        f"Import complete: {result['imported']} printer records staged across "
+        f"{len(result['locations'])} location(s) ({locs}). "
+        f"{result['skipped']} rows skipped.",
+        "success" if result["imported"] > 0 else "warning",
+    )
+    return redirect(url_for("config.index", tab="import"))

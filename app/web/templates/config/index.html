@@ -19,10 +19,17 @@
     </a>
   </li>
   <li class="nav-item">
-    <a class="nav-link {% if active_tab == 'groups' %}active{% endif %}"
-       href="{{ url_for('config.index', tab='groups') }}">
-      <i class="bi bi-collection me-1"></i>Printer Groups
-      <span class="badge bg-secondary ms-1">{{ groups | length }}</span>
+    <a class="nav-link {% if active_tab == 'locations' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='locations') }}">
+      <i class="bi bi-geo-alt me-1"></i>Locations
+      <span class="badge bg-secondary ms-1">{{ locations | length }}</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'import' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='import') }}">
+      <i class="bi bi-upload me-1"></i>Import
+      {% if import_count %}<span class="badge bg-info ms-1">{{ import_count }}</span>{% endif %}
     </a>
   </li>
   <li class="nav-item">
@@ -223,12 +230,12 @@
   </div>
 </div>
 
-<!-- ===================== GROUPS TAB ===================== -->
-{% elif active_tab == 'groups' %}
+<!-- ===================== LOCATIONS TAB ===================== -->
+{% elif active_tab == 'locations' %}
 <div class="row g-3">
   <div class="col-lg-7">
     <div class="card">
-      <div class="card-header fw-semibold">Printer Groups</div>
+      <div class="card-header fw-semibold">Locations</div>
       <div class="table-responsive">
         <table class="table table-hover table-sm mb-0 align-middle">
           <thead class="table-dark">
@@ -240,16 +247,16 @@
             </tr>
           </thead>
           <tbody>
-            {% for g in groups %}
+            {% for loc in locations %}
             <tr>
-              <td class="ps-3 fw-semibold">{{ g.name }}</td>
-              <td class="text-muted small">{{ g.description or '—' }}</td>
+              <td class="ps-3 fw-semibold">{{ loc.name }}</td>
+              <td class="text-muted small">{{ loc.description or '—' }}</td>
               <td>
-                <span class="badge bg-secondary">{{ group_counts.get(g.id, 0) }}</span>
+                <span class="badge bg-secondary">{{ location_counts.get(loc.id, 0) }}</span>
               </td>
               <td class="text-end pe-3">
-                <form method="POST" action="{{ url_for('config.delete_group', group_id=g.id) }}"
-                      onsubmit="return confirm('Delete group {{ g.name }}? Printers will be unassigned.')">
+                <form method="POST" action="{{ url_for('config.delete_location', location_id=loc.id) }}"
+                      onsubmit="return confirm('Delete location {{ loc.name }}? Printers will be unassigned.')">
                   <button type="submit" class="btn btn-sm btn-outline-danger">
                     <i class="bi bi-trash"></i>
                   </button>
@@ -258,7 +265,7 @@
             </tr>
             {% else %}
             <tr>
-              <td colspan="4" class="text-center text-muted py-4">No groups yet.</td>
+              <td colspan="4" class="text-center text-muted py-4">No locations yet.</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -269,25 +276,77 @@
 
   <div class="col-lg-5">
     <div class="card">
-      <div class="card-header fw-semibold">Add Group</div>
+      <div class="card-header fw-semibold">Add Location</div>
       <div class="card-body">
-        <form method="POST" action="{{ url_for('config.add_group') }}">
+        <form method="POST" action="{{ url_for('config.add_location') }}">
           <div class="mb-3">
-            <label class="form-label">Group Name</label>
-            <input type="text" name="name" class="form-control" required placeholder="e.g. Floor 2, Sales Dept">
+            <label class="form-label">Location Name</label>
+            <input type="text" name="name" class="form-control" required placeholder="e.g. Warehouse, Floor 2">
           </div>
           <div class="mb-3">
             <label class="form-label">Description <span class="text-muted">(optional)</span></label>
             <input type="text" name="description" class="form-control" placeholder="Brief description">
           </div>
           <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-collection me-1"></i>Create Group
+            <i class="bi bi-geo-alt me-1"></i>Create Location
           </button>
         </form>
       </div>
     </div>
   </div>
 </div>
+
+<!-- ===================== IMPORT TAB ===================== -->
+{% elif active_tab == 'import' %}
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header fw-semibold">Import Printer Spreadsheet</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Upload your printer inventory <code>.xlsx</code> file. Each sheet named after a location
+          (PMBS, Warehouse, Think Tank, HRPayroll, Wadley) will be imported. The Medcomm sheet is
+          skipped automatically.
+        </p>
+        <p class="text-muted small mb-3">
+          Imported records are matched to printers by IP address when a printer is added or
+          discovered — fields are filled in automatically if they are blank.
+        </p>
+        <form method="POST" action="{{ url_for('config.import_spreadsheet') }}" enctype="multipart/form-data">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Spreadsheet File</label>
+            <input type="file" name="spreadsheet" class="form-control" accept=".xlsx" required>
+            <div class="form-text">Only <code>.xlsx</code> files are supported.</div>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Import
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header fw-semibold">Import Status</div>
+      <div class="card-body">
+        {% if import_count %}
+        <p class="mb-1">
+          <span class="badge bg-success fs-6">{{ import_count }}</span>
+          printer record{{ 's' if import_count != 1 }} currently staged.
+        </p>
+        <p class="text-muted small mt-2">
+          These records will auto-fill fields for any printer whose IP matches when it is added
+          or discovered. Existing manual data is never overwritten.
+        </p>
+        {% else %}
+        <p class="text-muted small">No import data staged yet. Upload a spreadsheet to get started.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== THRESHOLDS TAB ===================== -->
 {% elif active_tab == 'thresholds' %}
 <div class="row">

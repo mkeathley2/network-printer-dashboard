@@ -7,7 +7,7 @@ from flask_login import login_required
 
 from app.core.database import db
 from app.models import AlertEvent, Printer, SupplySnapshot, TelemetrySnapshot
-from app.models.printer import PrinterGroup
+from app.models.location import Location
 from app.web.routes.config import get_effective_thresholds
 
 bp = Blueprint("dashboard", __name__)
@@ -50,13 +50,13 @@ def index():
         .count()
     )
 
-    # Groups for filter dropdown
-    groups = db.session.query(PrinterGroup).order_by(PrinterGroup.name).all()
-    group_id = request.args.get("group", type=int)
+    # Locations for filter dropdown
+    locations = db.session.query(Location).order_by(Location.name).all()
+    location_id = request.args.get("location", type=int)
 
     query = db.session.query(Printer).filter_by(is_active=True)
-    if group_id:
-        query = query.filter_by(group_id=group_id)
+    if location_id:
+        query = query.filter_by(location_id=location_id)
     printers = query.order_by(Printer.display_name, Printer.ip_address).all()
 
     # Pre-fetch telemetry so initial render is fully populated (no flash)
@@ -69,8 +69,8 @@ def index():
         online=online,
         offline=total - online,
         alerts_today=alerts_today,
-        groups=groups,
-        active_group_id=group_id,
+        locations=locations,
+        active_location_id=location_id,
     )
 
 

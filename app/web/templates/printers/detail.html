@@ -26,6 +26,11 @@
       <i class="bi bi-ticket me-1"></i>Create Ticket
     </button>
     {% endif %}
+    {% if printer.printer_web_username %}
+    <a href="http://{{ printer.ip_address }}" target="_blank" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-box-arrow-up-right me-1"></i>Open Web UI
+    </a>
+    {% endif %}
     <a href="{{ url_for('history.printer_history', printer_id=printer.id) }}" class="btn btn-sm btn-outline-info">
       <i class="bi bi-graph-up me-1"></i>History
     </a>
@@ -74,6 +79,38 @@
           {% if latest_telemetry %}
           <tr><th class="text-muted">Page Count</th>
               <td>{{ '{:,}'.format(latest_telemetry.page_count) if latest_telemetry.page_count else '—' }}</td></tr>
+          {% endif %}
+          {% if printer.location %}
+          <tr><th class="text-muted">Location</th><td>{{ printer.location.name }}</td></tr>
+          {% endif %}
+          {% if printer.assigned_person %}
+          <tr><th class="text-muted">Person</th><td>{{ printer.assigned_person }}</td></tr>
+          {% endif %}
+          {% if printer.sql_number %}
+          <tr><th class="text-muted">SQL #</th><td>{{ printer.sql_number }}</td></tr>
+          {% endif %}
+          {% if printer.assigned_computer %}
+          <tr><th class="text-muted">Computer</th><td>{{ printer.assigned_computer }}</td></tr>
+          {% endif %}
+          {% if printer.phone_ext %}
+          <tr><th class="text-muted">Ext.</th><td>{{ printer.phone_ext }}</td></tr>
+          {% endif %}
+          {% if printer.printer_web_username %}
+          <tr><th class="text-muted">Web User</th><td><code>{{ printer.printer_web_username }}</code></td></tr>
+          {% endif %}
+          {% if printer.printer_web_password %}
+          <tr>
+            <th class="text-muted">Web Pass</th>
+            <td>
+              <span id="webpw-mask">••••••</span>
+              <span id="webpw-val" class="d-none"><code>{{ printer.printer_web_password }}</code></span>
+              <button type="button" class="btn btn-link btn-sm p-0 ms-1 text-muted"
+                      onclick="document.getElementById('webpw-mask').classList.toggle('d-none');
+                               document.getElementById('webpw-val').classList.toggle('d-none');">
+                <i class="bi bi-eye"></i>
+              </button>
+            </td>
+          </tr>
           {% endif %}
         </table>
         {% if printer.notes %}

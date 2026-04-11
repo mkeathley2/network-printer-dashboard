@@ -100,9 +100,17 @@ def _run_migrations() -> None:
     """
     from sqlalchemy import text
     migrations = [
-        # Added: per-printer alert threshold overrides
+        # Per-printer alert threshold overrides
         "ALTER TABLE printers ADD COLUMN supply_warn_pct SMALLINT NULL",
         "ALTER TABLE printers ADD COLUMN supply_crit_pct SMALLINT NULL",
+        # Location + custom asset fields
+        "ALTER TABLE printers ADD COLUMN location_id BIGINT NULL",
+        "ALTER TABLE printers ADD COLUMN assigned_person VARCHAR(512) NULL",
+        "ALTER TABLE printers ADD COLUMN sql_number VARCHAR(128) NULL",
+        "ALTER TABLE printers ADD COLUMN assigned_computer VARCHAR(255) NULL",
+        "ALTER TABLE printers ADD COLUMN phone_ext VARCHAR(32) NULL",
+        "ALTER TABLE printers ADD COLUMN printer_web_username VARCHAR(255) NULL",
+        "ALTER TABLE printers ADD COLUMN printer_web_password VARCHAR(512) NULL",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
@@ -112,6 +120,27 @@ def _run_migrations() -> None:
             except Exception:
                 # Column already exists — safe to ignore
                 pass
+
+        # Migrate existing PrinterGroup rows → Location rows (one-time, skipped if locations exist)
+        try:
+            result = conn.execute(text("SELECT COUNT(*) FROM locations"))
+            if result.scalar() == 0:
+                conn.execute(text(
+                    "INSERT IGNORE INTO locations (name, description, created_at) "
+                    "SELECT name, description, created_at FROM printer_groups"
+                ))
+                conn.commit()
+            # Copy group_id → location_id for any printers that have a group but no location
+            conn.execute(text(
+                "UPDATE printers p "
+                "JOIN printer_groups g ON p.group_id = g.id "
+                "JOIN locations l ON g.name = l.name "
+                "SET p.location_id = l.id "
+                "WHERE p.location_id IS NULL AND p.group_id IS NOT NULL"
+            ))
+            conn.commit()
+        except Exception as e:
+            logger.debug("Group→Location migration skipped or already done: %s", e)
 
 
 def _seed_admin() -> None:

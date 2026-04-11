@@ -27,9 +27,9 @@ bp = Blueprint("api", __name__)
 @login_required
 def htmx_printer_cards():
     query = db.session.query(Printer).filter_by(is_active=True)
-    group_id = request.args.get("group", type=int)
-    if group_id:
-        query = query.filter_by(group_id=group_id)
+    location_id = request.args.get("location", type=int)
+    if location_id:
+        query = query.filter_by(location_id=location_id)
     printers = query.order_by(Printer.display_name, Printer.ip_address).all()
 
     printer_data = []
@@ -206,6 +206,7 @@ def discovery_add_all(scan_id: int):
     added, skipped = 0, 0
     printer_ids = []
 
+    from app.web.routes.printers import _apply_import_data
     for r in results:
         existing = db.session.query(Printer).filter_by(ip_address=r.ip_address).first()
         if existing and existing.is_active:
@@ -214,6 +215,7 @@ def discovery_add_all(scan_id: int):
         if existing and not existing.is_active:
             existing.is_active = True
             existing.snmp_community = app_config.snmp.community_v2c
+            _apply_import_data(existing)
             db.session.commit()
             printer_ids.append(existing.id)
         else:
@@ -223,6 +225,8 @@ def discovery_add_all(scan_id: int):
                 snmp_community=app_config.snmp.community_v2c,
             )
             db.session.add(printer)
+            db.session.flush()
+            _apply_import_data(printer)
             db.session.commit()
             printer_ids.append(printer.id)
         added += 1
