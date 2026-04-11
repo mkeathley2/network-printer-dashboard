@@ -38,6 +38,12 @@
       <i class="bi bi-sliders me-1"></i>Thresholds
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'activity' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='activity') }}">
+      <i class="bi bi-journal-text me-1"></i>Activity Log
+    </a>
+  </li>
 </ul>
 
 <!-- ===================== SMTP TAB ===================== -->
@@ -384,6 +390,65 @@
     </div>
   </div>
 </div>
+<!-- ===================== ACTIVITY LOG TAB ===================== -->
+{% elif active_tab == 'activity' %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <p class="text-muted small mb-0">Showing the last 500 entries (30-day retention).</p>
+  <a href="{{ url_for('config.export_activity_log') }}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-download me-1"></i>Export CSV
+  </a>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th class="ps-3">Time</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>Detail</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in audit_entries %}
+        <tr class="{% if not entry.success %}table-danger{% endif %}">
+          <td class="ps-3 text-muted small text-nowrap">
+            {{ entry.occurred_at.strftime('%Y-%m-%d %H:%M') }}
+          </td>
+          <td class="small fw-semibold">{{ entry.username }}</td>
+          <td>
+            <span class="badge
+              {% if not entry.success %}bg-danger
+              {% elif 'delete' in entry.action or 'remove' in entry.action %}bg-warning text-dark
+              {% elif 'add' in entry.action or 'restore' in entry.action or 'import' in entry.action %}bg-success
+              {% elif 'poll' in entry.action or 'scan' in entry.action %}bg-info text-dark
+              {% else %}bg-secondary
+              {% endif %}">
+              {{ entry.action | replace('_', ' ') }}
+            </span>
+          </td>
+          <td class="small text-muted">{{ entry.target or '—' }}</td>
+          <td class="small">{{ entry.detail or '—' }}</td>
+          <td>
+            {% if entry.success %}
+              <span class="badge bg-success"><i class="bi bi-check"></i></span>
+            {% else %}
+              <span class="badge bg-danger"><i class="bi bi-x"></i> Failed</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="text-center text-muted py-4">No activity recorded yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
 {% endif %}
 
 {% endblock %}

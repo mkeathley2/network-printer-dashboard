@@ -1,7 +1,10 @@
 """Admin-only configuration routes: SMTP, Users, Locations, Import."""
 from __future__ import annotations
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+import csv
+import io
+
+from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from werkzeug.security import generate_password_hash
 
@@ -9,6 +12,7 @@ from app.core.database import db
 from app.models import Printer, PrinterImportData, SiteSetting, User
 from app.models.location import Location
 from app.models.printer import PrinterGroup
+from app.utils.audit import audit
 from app.web.routes.auth import admin_required
 
 bp = Blueprint("config", __name__, url_prefix="/config")
@@ -70,6 +74,17 @@ def index():
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
 
     tab = request.args.get("tab", "smtp")
+
+    audit_entries = []
+    if tab == "activity":
+        from app.models.audit import AuditLog
+        audit_entries = (
+            db.session.query(AuditLog)
+            .order_by(AuditLog.occurred_at.desc())
+            .limit(500)
+            .all()
+        )
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -80,6 +95,7 @@ def index():
         active_tab=tab,
         warn_pct=warn_pct,
         crit_pct=crit_pct,
+        audit_entries=audit_entries,
     )
 
 
@@ -101,6 +117,8 @@ def save_thresholds():
     _set_setting("supply_warn_pct", str(warn))
     _set_setting("supply_crit_pct", str(crit))
     db.session.commit()
+    audit(current_user.username, "config_thresholds", "site",
+          f"Updated site thresholds: warn={warn}%, crit={crit}%")
     flash("Threshold settings saved.", "success")
     return redirect(url_for("config.index", tab="thresholds"))
 
@@ -118,6 +136,7 @@ def save_smtp():
     if new_pw:
         _set_setting("smtp_password", new_pw)
     db.session.commit()
+    audit(current_user.username, "config_smtp", "smtp", "Updated SMTP settings")
     flash("SMTP settings saved.", "success")
     return redirect(url_for("config.index", tab="smtp"))
 
@@ -127,6 +146,8 @@ def save_smtp():
 def test_smtp():
     from app.alerts.notifier import send_test_email
     ok, msg = send_test_email()
+    audit(current_user.username, "config_smtp_test", "smtp",
+          f"Test email {'succeeded' if ok else 'failed'}: {msg}", success=ok)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("config.index", tab="smtp"))
 
@@ -155,6 +176,7 @@ def add_user():
         role=role,
     ))
     db.session.commit()
+    audit(current_user.username, "user_add", username, f"Created user '{username}' with role {role}")
     flash(f"User '{username}' created.", "success")
     return redirect(url_for("config.index", tab="users"))
 
@@ -166,9 +188,11 @@ def delete_user(user_id: int):
     if user.id == current_user.id:
         flash("You cannot delete your own account.", "danger")
         return redirect(url_for("config.index", tab="users"))
+    deleted_name = user.username
     db.session.delete(user)
     db.session.commit()
-    flash(f"User '{user.username}' deleted.", "success")
+    audit(current_user.username, "user_delete", deleted_name, f"Deleted user '{deleted_name}'")
+    flash(f"User '{deleted_name}' deleted.", "success")
     return redirect(url_for("config.index", tab="users"))
 
 
@@ -182,6 +206,8 @@ def set_user_password(user_id: int):
         return redirect(url_for("config.index", tab="users"))
     user.password_hash = generate_password_hash(new_pw)
     db.session.commit()
+    audit(current_user.username, "user_password", user.username,
+          f"Changed password for '{user.username}'")
     flash(f"Password updated for '{user.username}'.", "success")
     return redirect(url_for("config.index", tab="users"))
 
@@ -199,6 +225,8 @@ def set_user_role(user_id: int):
         return redirect(url_for("config.index", tab="users"))
     user.role = role
     db.session.commit()
+    audit(current_user.username, "user_role", user.username,
+          f"Changed role for '{user.username}' to {role}")
     flash(f"Role for '{user.username}' updated to {role}.", "success")
     return redirect(url_for("config.index", tab="users"))
 
@@ -219,6 +247,7 @@ def add_location():
         return redirect(url_for("config.index", tab="locations"))
     db.session.add(Location(name=name, description=description))
     db.session.commit()
+    audit(current_user.username, "location_add", name, f"Created location '{name}'")
     flash(f"Location '{name}' created.", "success")
     return redirect(url_for("config.index", tab="locations"))
 
@@ -227,10 +256,12 @@ def add_location():
 @admin_required
 def delete_location(location_id: int):
     location = db.get_or_404(Location, location_id)
+    loc_name = location.name
     db.session.query(Printer).filter_by(location_id=location_id).update({"location_id": None})
     db.session.delete(location)
     db.session.commit()
-    flash(f"Location '{location.name}' deleted.", "success")
+    audit(current_user.username, "location_delete", loc_name, f"Deleted location '{loc_name}'")
+    flash(f"Location '{loc_name}' deleted.", "success")
     return redirect(url_for("config.index", tab="locations"))
 
 
@@ -256,6 +287,9 @@ def import_spreadsheet():
             flash(err, "warning")
 
     locs = ", ".join(result["locations"]) if result["locations"] else "none"
+    audit(current_user.username, "import_spreadsheet", f.filename,
+          f"Imported {result['imported']} records across {len(result['locations'])} location(s); "
+          f"{result['skipped']} skipped")
     flash(
         f"Import complete: {result['imported']} printer records staged across "
         f"{len(result['locations'])} location(s) ({locs}). "
@@ -263,3 +297,35 @@ def import_spreadsheet():
         "success" if result["imported"] > 0 else "warning",
     )
     return redirect(url_for("config.index", tab="import"))
+
+
+# ---------------------------------------------------------------------------
+# Activity log CSV export
+# ---------------------------------------------------------------------------
+@bp.route("/activity/export")
+@admin_required
+def export_activity_log():
+    from app.models.audit import AuditLog
+    rows = (
+        db.session.query(AuditLog)
+        .order_by(AuditLog.occurred_at.desc())
+        .all()
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp", "username", "action", "target", "detail", "success"])
+    for r in rows:
+        writer.writerow([
+            r.occurred_at.strftime("%Y-%m-%d %H:%M:%S"),
+            r.username,
+            r.action,
+            r.target or "",
+            r.detail or "",
+            "yes" if r.success else "no",
+        ])
+    buf.seek(0)
+    return Response(
+        buf.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=activity_log.csv"},
+    )

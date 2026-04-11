@@ -7,6 +7,7 @@ from app.core.config import config
 from app.core.database import db
 from app.models import Printer, PrinterImportData, SiteSetting, SupplySnapshot, TelemetrySnapshot
 from app.models.location import Location
+from app.utils.audit import audit
 from app.web.routes.auth import admin_required
 from app.web.routes.config import get_effective_thresholds
 
@@ -127,6 +128,8 @@ def add():
             db.session.commit()
             printer = existing
             flash(f"Printer {ip} restored to the dashboard.", "success")
+            audit(current_user.username, "printer_restore", ip,
+                  f"Restored previously-removed printer {ip}")
         else:
             printer = Printer(
                 ip_address=ip,
@@ -140,14 +143,17 @@ def add():
             _apply_import_data(printer)
             db.session.commit()
             flash(f"Printer {ip} added successfully.", "success")
+            audit(current_user.username, "printer_add", ip,
+                  f"Added printer {ip}" + (f" ({display_name})" if display_name else ""))
 
         try:
             from app.core.database import get_db
             from app.scanner.poller import poll_single_printer
             with get_db() as sess:
                 poll_single_printer(printer.id, sess)
-        except Exception:
-            pass
+        except Exception as poll_err:
+            audit(current_user.username, "printer_poll_fail", ip,
+                  f"Initial poll failed after add: {poll_err}", success=False)
 
         return redirect(url_for("printers.detail", printer_id=printer.id))
 
@@ -174,6 +180,8 @@ def edit(printer_id: int):
         if new_pw:
             printer.printer_web_password = new_pw
         db.session.commit()
+        audit(current_user.username, "printer_edit", printer.ip_address,
+              f"Edited printer {printer.effective_name} ({printer.ip_address})")
         flash("Printer updated.", "success")
         return redirect(url_for("printers.detail", printer_id=printer.id))
     return render_template("printers/edit.html", printer=printer, locations=locations)
@@ -183,9 +191,12 @@ def edit(printer_id: int):
 @admin_required
 def delete(printer_id: int):
     printer = db.get_or_404(Printer, printer_id)
+    name = printer.effective_name
     printer.is_active = False
     db.session.commit()
-    flash(f"Printer {printer.effective_name} removed.", "success")
+    audit(current_user.username, "printer_delete", printer.ip_address,
+          f"Removed printer {name} ({printer.ip_address})")
+    flash(f"Printer {name} removed.", "success")
     return redirect(url_for("printers.list_printers"))
 
 
@@ -207,6 +218,8 @@ def restore(printer_id: int):
     printer = db.get_or_404(Printer, printer_id)
     printer.is_active = True
     db.session.commit()
+    audit(current_user.username, "printer_restore", printer.ip_address,
+          f"Restored printer {printer.effective_name} ({printer.ip_address})")
 
     try:
         from app.core.database import get_db
@@ -229,6 +242,8 @@ def set_thresholds(printer_id: int):
         printer.supply_warn_pct = None
         printer.supply_crit_pct = None
         db.session.commit()
+        audit(current_user.username, "printer_thresholds", printer.ip_address,
+              f"Reset thresholds to site default for {printer.effective_name}")
         flash("Thresholds reset to site defaults.", "success")
     else:
         try:
@@ -243,6 +258,8 @@ def set_thresholds(printer_id: int):
         printer.supply_warn_pct = warn
         printer.supply_crit_pct = crit
         db.session.commit()
+        audit(current_user.username, "printer_thresholds", printer.ip_address,
+              f"Set thresholds warn={warn}% crit={crit}% for {printer.effective_name}")
         flash("Printer thresholds saved.", "success")
     return redirect(url_for("printers.detail", printer_id=printer_id))
 
@@ -261,8 +278,12 @@ def resend_alerts(printer_id: int):
             sess.commit()
             # Immediately poll so emails go out now rather than waiting
             poll_single_printer(printer_id, sess)
+        audit(current_user.username, "printer_resend_alerts", printer.ip_address,
+              f"Resent alerts for {printer.effective_name}")
         flash("Alert state reset and emails resent for active alerts.", "success")
     except Exception as e:
+        audit(current_user.username, "printer_resend_alerts", printer.ip_address,
+              f"Resend alerts failed for {printer.effective_name}: {e}", success=False)
         flash(f"Resend failed: {e}", "danger")
     return redirect(url_for("printers.detail", printer_id=printer_id))
 
@@ -270,14 +291,18 @@ def resend_alerts(printer_id: int):
 @bp.route("/<int:printer_id>/poll", methods=["POST"])
 @admin_required
 def poll_now(printer_id: int):
-    db.get_or_404(Printer, printer_id)
+    printer = db.get_or_404(Printer, printer_id)
     try:
         from app.core.database import get_db
         from app.scanner.poller import poll_single_printer
         with get_db() as sess:
             poll_single_printer(printer_id, sess)
+        audit(current_user.username, "printer_poll", printer.ip_address,
+              f"Manual poll of {printer.effective_name}")
         flash("Poll completed.", "success")
     except Exception as e:
+        audit(current_user.username, "printer_poll", printer.ip_address,
+              f"Manual poll failed for {printer.effective_name}: {e}", success=False)
         flash(f"Poll failed: {e}", "danger")
     return redirect(url_for("printers.detail", printer_id=printer_id))
 
@@ -305,5 +330,8 @@ def create_ticket(printer_id: int):
 
     from app.alerts.notifier import send_helpdesk_ticket
     ok, msg = send_helpdesk_ticket(printer, supplies, note, current_user.username)
+    audit(current_user.username, "helpdesk_ticket", printer.ip_address,
+          f"Helpdesk ticket {'sent' if ok else 'failed'} for {printer.effective_name}: {msg}",
+          success=ok)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("printers.detail", printer_id=printer_id))

@@ -101,6 +101,9 @@ def _run_migrations() -> None:
     """
     from sqlalchemy import text
     migrations = [
+        # Audit log table index (table created by db.create_all, index may not exist)
+        "ALTER TABLE audit_log ADD INDEX ix_audit_log_occurred_at (occurred_at)",
+        "ALTER TABLE audit_log ADD INDEX ix_audit_log_action (action)",
         # Per-printer alert threshold overrides
         "ALTER TABLE printers ADD COLUMN supply_warn_pct SMALLINT NULL",
         "ALTER TABLE printers ADD COLUMN supply_crit_pct SMALLINT NULL",

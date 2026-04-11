@@ -6,6 +6,7 @@ from .alert import AlertEvent, AlertState
 from .discovery import DiscoveryScan, DiscoveryResult
 from .user import User
 from .settings import SiteSetting
+from .audit import AuditLog
 
 __all__ = [
     "Printer", "PrinterGroup",
@@ -15,4 +16,5 @@ __all__ = [
     "AlertEvent", "AlertState",
     "DiscoveryScan", "DiscoveryResult",
     "User", "SiteSetting",
+    "AuditLog",
 ]

@@ -14,6 +14,7 @@ from app.models import (
     AlertEvent, DiscoveryScan, DiscoveryResult,
     Printer, SupplySnapshot, TelemetrySnapshot,
 )
+from app.utils.audit import audit
 from app.web.routes.auth import admin_required
 from app.web.routes.config import get_effective_thresholds
 
@@ -116,6 +117,7 @@ def htmx_discovery_start():
     db.session.add(scan)
     db.session.commit()
     scan_id = scan.id
+    audit(current_user.username, "discovery_scan", cidr, f"Started CIDR scan of {cidr}")
 
     from flask import current_app
     flask_app = current_app._get_current_object()
@@ -270,6 +272,8 @@ def discovery_add_all(scan_id: int):
     msg = f"{added} printer(s) added to the dashboard."
     if skipped:
         msg += f" {skipped} already present."
+    audit(current_user.username, "discovery_add_all", f"scan {scan_id}",
+          f"Added {added} printer(s) from scan {scan_id}" + (f"; {skipped} already known" if skipped else ""))
     flash(msg, "success")
     return redirect(url_for("discovery.index"))
 
