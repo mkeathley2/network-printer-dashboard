@@ -159,6 +159,73 @@ def htmx_discovery_results(scan_id: int):
 
 
 # ---------------------------------------------------------------------------
+# Add all new printers from a completed scan
+# ---------------------------------------------------------------------------
+@bp.route("/discovery/<int:scan_id>/add-all", methods=["POST"])
+@admin_required
+def discovery_add_all(scan_id: int):
+    from flask import flash, redirect, url_for
+    from app.core.config import config as app_config
+
+    results = (
+        db.session.query(DiscoveryResult)
+        .filter_by(scan_id=scan_id, already_known=False)
+        .all()
+    )
+
+    added, skipped = 0, 0
+    printer_ids = []
+
+    for r in results:
+        existing = db.session.query(Printer).filter_by(ip_address=r.ip_address).first()
+        if existing and existing.is_active:
+            skipped += 1
+            continue
+        if existing and not existing.is_active:
+            existing.is_active = True
+            existing.snmp_community = app_config.snmp.community_v2c
+            db.session.commit()
+            printer_ids.append(existing.id)
+        else:
+            printer = Printer(
+                ip_address=r.ip_address,
+                display_name=r.hostname or None,
+                snmp_community=app_config.snmp.community_v2c,
+            )
+            db.session.add(printer)
+            db.session.commit()
+            printer_ids.append(printer.id)
+        added += 1
+
+    # Mark all as known now
+    db.session.query(DiscoveryResult).filter_by(scan_id=scan_id, already_known=False).update({"already_known": True})
+    db.session.commit()
+
+    # Poll all newly added printers in background
+    from flask import current_app
+    flask_app = current_app._get_current_object()
+    ids_to_poll = list(printer_ids)
+
+    def _poll_all():
+        with flask_app.app_context():
+            from app.scanner.poller import poll_single_printer
+            for pid in ids_to_poll:
+                try:
+                    with get_db() as sess:
+                        poll_single_printer(pid, sess)
+                except Exception:
+                    pass
+
+    threading.Thread(target=_poll_all, daemon=True).start()
+
+    msg = f"{added} printer(s) added to the dashboard."
+    if skipped:
+        msg += f" {skipped} already present."
+    flash(msg, "success")
+    return redirect(url_for("discovery.index"))
+
+
+# ---------------------------------------------------------------------------
 # Chart.js JSON: supply level history
 # ---------------------------------------------------------------------------
 @bp.route("/api/history/<int:printer_id>/supplies")
