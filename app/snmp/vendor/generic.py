@@ -24,11 +24,13 @@ _ENTERPRISE_VENDOR_MAP = {
     "2435": "brother",
     "1602": "canon",
     "1347": "kyocera",
+    "367":  "ricoh",
 }
 
 # One well-known OID per vendor, used for last-resort detection when
 # sysDescr / sysObjectID don't respond.
 _VENDOR_PROBE_OIDS = {
+    "ricoh":   oids.RICOH_MODEL,
     "kyocera": oids.KYOCERA_PAGE_COUNT,
     "hp":      oids.HP_SERIAL_NUMBER,
 }
@@ -60,6 +62,8 @@ def _detect_vendor(sysoid_value: Optional[str], sysdescr: Optional[str]) -> str:
             return "canon"
         if "kyocera" in descr_lower or "ecosys" in descr_lower:
             return "kyocera"
+        if "ricoh" in descr_lower or "aficio" in descr_lower or "lanier" in descr_lower or "savin" in descr_lower:
+            return "ricoh"
     return "generic"
 
 
@@ -72,7 +76,9 @@ def _detect_vendor_by_enterprise_probe(
     """
     for vendor, probe_oid in _VENDOR_PROBE_OIDS.items():
         result = snmp_get(ip, [probe_oid], snmp_params, timeout=timeout, retries=retries)
-        if result:
+        # Must have at least one non-None value — NoSuchObject returns {oid: None}
+        # which is a non-empty dict but contains no real data.
+        if result and any(v is not None for v in result.values()):
             logger.debug("Detected vendor %r for %s via enterprise OID probe", vendor, ip)
             return vendor
     return "generic"

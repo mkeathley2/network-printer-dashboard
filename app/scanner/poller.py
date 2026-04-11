@@ -39,6 +39,11 @@ try:
     _VENDOR_ENRICH["kyocera"] = kyocera.enrich
 except ImportError:
     pass
+try:
+    from app.snmp.vendor import ricoh
+    _VENDOR_ENRICH["ricoh"] = ricoh.enrich
+except ImportError:
+    pass
 
 
 def _build_snmp_params(printer: Printer) -> dict:
