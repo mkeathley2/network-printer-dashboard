@@ -69,7 +69,10 @@
 
               <div class="mb-1">
                 <div class="d-flex justify-content-between small">
-                  <span>{{ (s.supply_color or s.supply_description or 'Supply') | title }}</span>
+                  <span>
+                    {%- if s.supply_description %}{{ s.supply_description }}{% endif %}
+                    {%- if s.supply_color and s.supply_color != 'unknown' %} {{ s.supply_color | title }}{% elif not s.supply_description %} Supply{% endif -%}
+                  </span>
                   <span class="{{ label_class }}">{{ s.level_pct }}%</span>
                 </div>
                 <div class="progress" style="height:8px;">
