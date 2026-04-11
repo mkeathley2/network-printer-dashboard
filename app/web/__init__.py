@@ -80,15 +80,38 @@ def create_app(yaml_path: str | None = None) -> Flask:
         except Exception:
             return {"removed_count": 0}
 
-    # Create tables and seed default admin
+    # Create tables, apply column migrations, and seed default admin
     with app.app_context():
         from app import models as _models  # noqa: F401
         db.create_all()
+        _run_migrations()
         logger.info("Database tables verified/created.")
         _seed_admin()
 
     logger.info("Application created. Listening on port %d", cfg.app.port)
     return app
+
+
+def _run_migrations() -> None:
+    """
+    Apply any missing column additions to existing tables.
+    Safe to run on every startup — each statement is skipped if the column
+    already exists (MariaDB/MySQL ignore duplicate-column errors).
+    """
+    from sqlalchemy import text
+    migrations = [
+        # Added: per-printer alert threshold overrides
+        "ALTER TABLE printers ADD COLUMN supply_warn_pct SMALLINT NULL",
+        "ALTER TABLE printers ADD COLUMN supply_crit_pct SMALLINT NULL",
+    ]
+    with db.engine.connect() as conn:
+        for stmt in migrations:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                # Column already exists — safe to ignore
+                pass
 
 
 def _seed_admin() -> None:
