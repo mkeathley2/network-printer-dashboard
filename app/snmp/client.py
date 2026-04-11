@@ -48,7 +48,8 @@ def _build_auth(snmp_params: dict) -> CommunityData | UsmUserData:
             authProtocol=auth_proto_map.get(snmp_params.get("auth_proto", ""), usmNoAuthProtocol),
             privProtocol=priv_proto_map.get(snmp_params.get("priv_proto", ""), usmNoPrivProtocol),
         )
-    return CommunityData(snmp_params.get("community", "public"), mpModel=1)
+    mp_model = 0 if version == "1" else 1  # 0=SNMPv1, 1=SNMPv2c
+    return CommunityData(snmp_params.get("community", "public"), mpModel=mp_model)
 
 
 async def _async_get_all(
@@ -72,8 +73,10 @@ async def _async_get_all(
                 ContextData(),
                 ObjectType(ObjectIdentity(oid_str)),
             )
-            if error_indication or error_status:
-                continue
+            if error_indication:
+                break  # Host unreachable / timeout — stop trying remaining OIDs
+            if error_status:
+                continue  # This specific OID not supported — try the next one
             for var_bind in var_binds:
                 result[str(var_bind[0])] = _coerce_value(var_bind[1])
         except Exception as e:
