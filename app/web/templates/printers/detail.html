@@ -103,13 +103,55 @@
                  hx-get="{{ url_for('api.htmx_printer_supplies', printer_id=printer.id) }}"
                  hx-trigger="load, every 60s"
                  hx-swap="innerHTML">
-            {% include "printers/_supply_row.html" %}
+            {% include "printers/_supply_row.html" with context %}
           </tbody>
         </table>
       </div>
     </div>
   </div>
 </div>
+
+{% if current_user.is_admin %}
+<!-- Per-printer threshold settings -->
+<div class="row g-3 mt-1">
+  <div class="col-md-5">
+    <div class="card">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Alert Thresholds
+        {% if printer.supply_warn_pct is not none %}
+          <span class="badge bg-primary">Custom</span>
+        {% else %}
+          <span class="badge bg-secondary">Using Site Default</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('printers.set_thresholds', printer_id=printer.id) }}">
+          <div class="row g-2 mb-3">
+            <div class="col">
+              <label class="form-label small">Warning %</label>
+              <input type="number" name="supply_warn_pct" class="form-control form-control-sm"
+                     min="1" max="99" value="{{ printer.supply_warn_pct if printer.supply_warn_pct is not none else warn_pct }}">
+            </div>
+            <div class="col">
+              <label class="form-label small">Critical %</label>
+              <input type="number" name="supply_crit_pct" class="form-control form-control-sm"
+                     min="1" max="99" value="{{ printer.supply_crit_pct if printer.supply_crit_pct is not none else crit_pct }}">
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">Save</button>
+            {% if printer.supply_warn_pct is not none %}
+            <button type="submit" name="use_default" value="1" class="btn btn-sm btn-outline-secondary">
+              Reset to Default
+            </button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <!-- Helpdesk Ticket Modal -->
 {% if helpdesk_configured %}

@@ -25,6 +25,12 @@
       <span class="badge bg-secondary ms-1">{{ groups | length }}</span>
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'thresholds' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='thresholds') }}">
+      <i class="bi bi-sliders me-1"></i>Thresholds
+    </a>
+  </li>
 </ul>
 
 <!-- ===================== SMTP TAB ===================== -->
@@ -256,6 +262,43 @@
           </div>
           <button type="submit" class="btn btn-primary w-100">
             <i class="bi bi-collection me-1"></i>Create Group
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ===================== THRESHOLDS TAB ===================== -->
+{% elif active_tab == 'thresholds' %}
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card">
+      <div class="card-header fw-semibold">Site-Wide Alert Thresholds</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          These thresholds apply to all printers unless overridden on the individual printer page.
+        </p>
+        <form method="POST" action="{{ url_for('config.save_thresholds') }}">
+          <div class="mb-3">
+            <label class="form-label">Warning Threshold <span class="text-muted small">(% remaining)</span></label>
+            <div class="input-group" style="width:140px;">
+              <input type="number" name="supply_warn_pct" class="form-control"
+                     min="1" max="99" value="{{ warn_pct }}" required>
+              <span class="input-group-text">%</span>
+            </div>
+            <div class="form-text">Supply bar turns orange below this level.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Critical Threshold <span class="text-muted small">(% remaining)</span></label>
+            <div class="input-group" style="width:140px;">
+              <input type="number" name="supply_crit_pct" class="form-control"
+                     min="1" max="99" value="{{ crit_pct }}" required>
+              <span class="input-group-text">%</span>
+            </div>
+            <div class="form-text">Supply bar turns red below this level.</div>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i>Save Thresholds
           </button>
         </form>
       </div>

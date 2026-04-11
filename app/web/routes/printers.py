@@ -8,6 +8,7 @@ from app.core.database import db
 from app.models import Printer, SiteSetting, SupplySnapshot, TelemetrySnapshot
 from app.models.printer import PrinterGroup
 from app.web.routes.auth import admin_required
+from app.web.routes.config import get_effective_thresholds
 
 bp = Blueprint("printers", __name__, url_prefix="/printers")
 
@@ -52,12 +53,15 @@ def detail(printer_id: int):
     helpdesk_row = db.session.get(SiteSetting, "helpdesk_email")
     helpdesk_configured = bool(helpdesk_row and helpdesk_row.value)
 
+    warn_pct, crit_pct = get_effective_thresholds(printer)
     return render_template(
         "printers/detail.html",
         printer=printer,
         latest_telemetry=latest_telemetry,
         supplies=supplies,
         helpdesk_configured=helpdesk_configured,
+        warn_pct=warn_pct,
+        crit_pct=crit_pct,
     )
 
 
@@ -174,6 +178,33 @@ def restore(printer_id: int):
         pass
 
     flash(f"Printer {printer.effective_name} restored to the dashboard.", "success")
+    return redirect(url_for("printers.detail", printer_id=printer_id))
+
+
+@bp.route("/<int:printer_id>/thresholds", methods=["POST"])
+@admin_required
+def set_thresholds(printer_id: int):
+    printer = db.get_or_404(Printer, printer_id)
+    use_default = request.form.get("use_default") == "1"
+    if use_default:
+        printer.supply_warn_pct = None
+        printer.supply_crit_pct = None
+        db.session.commit()
+        flash("Thresholds reset to site defaults.", "success")
+    else:
+        try:
+            warn = int(request.form.get("supply_warn_pct", 15))
+            crit = int(request.form.get("supply_crit_pct", 5))
+        except (ValueError, TypeError):
+            flash("Invalid threshold values.", "danger")
+            return redirect(url_for("printers.detail", printer_id=printer_id))
+        if not (0 < crit < warn <= 100):
+            flash("Warning must be greater than critical, and both between 1–99.", "danger")
+            return redirect(url_for("printers.detail", printer_id=printer_id))
+        printer.supply_warn_pct = warn
+        printer.supply_crit_pct = crit
+        db.session.commit()
+        flash("Printer thresholds saved.", "success")
     return redirect(url_for("printers.detail", printer_id=printer_id))
 
 

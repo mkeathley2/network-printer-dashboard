@@ -15,6 +15,7 @@ from app.models import (
     Printer, SupplySnapshot, TelemetrySnapshot,
 )
 from app.web.routes.auth import admin_required
+from app.web.routes.config import get_effective_thresholds
 
 bp = Blueprint("api", __name__)
 
@@ -47,7 +48,9 @@ def htmx_printer_cards():
                 .order_by(SupplySnapshot.supply_index)
                 .all()
             )
-        printer_data.append({"printer": p, "telemetry": latest, "supplies": supplies})
+        warn_pct, crit_pct = get_effective_thresholds(p)
+        printer_data.append({"printer": p, "telemetry": latest, "supplies": supplies,
+                              "warn_pct": warn_pct, "crit_pct": crit_pct})
     return render_template("dashboard/_printer_card.html", printer_data=printer_data)
 
 
@@ -71,7 +74,10 @@ def htmx_printer_supplies(printer_id: int):
             .order_by(SupplySnapshot.supply_index)
             .all()
         )
-    return render_template("printers/_supply_row.html", supplies=supplies, telemetry=latest)
+    printer = db.session.get(Printer, printer_id)
+    warn_pct, crit_pct = get_effective_thresholds(printer)
+    return render_template("printers/_supply_row.html", supplies=supplies, telemetry=latest,
+                           warn_pct=warn_pct, crit_pct=crit_pct)
 
 
 # ---------------------------------------------------------------------------

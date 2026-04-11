@@ -67,6 +67,10 @@ class Printer(Base):
     group_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("printer_groups.id", ondelete="SET NULL"))
     group: Mapped[Optional[PrinterGroup]] = relationship("PrinterGroup", back_populates="printers")
 
+    # Per-printer alert thresholds (NULL = use site-wide default from SiteSetting)
+    supply_warn_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    supply_crit_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+
     telemetry: Mapped[List["TelemetrySnapshot"]] = relationship(  # type: ignore[name-defined]
         "TelemetrySnapshot", back_populates="printer", cascade="all, delete-orphan"
     )

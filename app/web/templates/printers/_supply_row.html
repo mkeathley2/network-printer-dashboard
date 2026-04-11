@@ -1,5 +1,6 @@
-{% set warn_pct = 15 %}
-{% set crit_pct = 5 %}
+{# Thresholds passed from route; fall back to defaults if not provided #}
+{% set warn_pct = warn_pct if warn_pct is defined else 15 %}
+{% set crit_pct = crit_pct if crit_pct is defined else 5 %}
 
 {% if supplies %}
   {% for s in supplies %}

@@ -15,6 +15,27 @@ bp = Blueprint("config", __name__, url_prefix="/config")
 # Setting keys stored in SiteSetting table
 SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from", "alert_to", "helpdesk_email"]
 
+THRESHOLD_WARN_DEFAULT = 15
+THRESHOLD_CRIT_DEFAULT = 5
+
+
+def get_effective_thresholds(printer=None) -> tuple[int, int]:
+    """
+    Return (warn_pct, crit_pct) for a printer.
+    Printer-level overrides take priority; falls back to site-wide SiteSetting,
+    then to hardcoded defaults.
+    """
+    if printer is not None:
+        if printer.supply_warn_pct is not None and printer.supply_crit_pct is not None:
+            return printer.supply_warn_pct, printer.supply_crit_pct
+
+    try:
+        warn = int(_get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT)))
+        crit = int(_get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT)))
+    except (ValueError, TypeError):
+        warn, crit = THRESHOLD_WARN_DEFAULT, THRESHOLD_CRIT_DEFAULT
+    return warn, crit
+
 
 def _get_setting(key: str, default: str = "") -> str:
     row = db.session.get(SiteSetting, key)
@@ -47,6 +68,9 @@ def index():
     for g in groups:
         group_counts[g.id] = db.session.query(Printer).filter_by(group_id=g.id, is_active=True).count()
 
+    warn_pct = _get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT))
+    crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
+
     tab = request.args.get("tab", "smtp")
     return render_template(
         "config/index.html",
@@ -55,7 +79,31 @@ def index():
         groups=groups,
         group_counts=group_counts,
         active_tab=tab,
+        warn_pct=warn_pct,
+        crit_pct=crit_pct,
     )
+
+
+# ---------------------------------------------------------------------------
+# Threshold settings
+# ---------------------------------------------------------------------------
+@bp.route("/thresholds", methods=["POST"])
+@admin_required
+def save_thresholds():
+    try:
+        warn = int(request.form.get("supply_warn_pct", THRESHOLD_WARN_DEFAULT))
+        crit = int(request.form.get("supply_crit_pct", THRESHOLD_CRIT_DEFAULT))
+    except (ValueError, TypeError):
+        flash("Invalid threshold values — must be whole numbers.", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    if not (0 < crit < warn <= 100):
+        flash("Warning must be greater than critical, and both must be between 1–99.", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    _set_setting("supply_warn_pct", str(warn))
+    _set_setting("supply_crit_pct", str(crit))
+    db.session.commit()
+    flash("Threshold settings saved.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
 
 
 # ---------------------------------------------------------------------------

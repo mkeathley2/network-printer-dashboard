@@ -1,16 +1,8 @@
-{% set warn_pct = 15 %}
-{% set crit_pct = 5 %}
-
 {% if printer_data is defined %}
-  {# Called from HTMX partial endpoint #}
+  {# Called from HTMX partial endpoint or dashboard route #}
   {% set items = printer_data %}
 {% else %}
-  {# Called inline from dashboard/index.html on first load #}
   {% set items = [] %}
-  {% for p in printers %}
-    {# Inline version: supplies not pre-fetched; HTMX will refresh shortly #}
-    {% set _ = items.append({"printer": p, "telemetry": none, "supplies": []}) %}
-  {% endfor %}
 {% endif %}
 
 <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
@@ -18,6 +10,8 @@
   {% set p = item.printer %}
   {% set telem = item.telemetry %}
   {% set supplies = item.supplies %}
+  {% set warn_pct = item.warn_pct if item.warn_pct is defined else 15 %}
+  {% set crit_pct = item.crit_pct if item.crit_pct is defined else 5 %}
 
   <div class="col">
     <div class="card card-printer h-100">

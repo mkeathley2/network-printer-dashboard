@@ -8,6 +8,7 @@ from flask_login import login_required
 from app.core.database import db
 from app.models import AlertEvent, Printer, SupplySnapshot, TelemetrySnapshot
 from app.models.printer import PrinterGroup
+from app.web.routes.config import get_effective_thresholds
 
 bp = Blueprint("dashboard", __name__)
 
@@ -30,7 +31,9 @@ def _build_printer_data(printers: list) -> list:
                 .order_by(SupplySnapshot.supply_index)
                 .all()
             )
-        printer_data.append({"printer": p, "telemetry": latest, "supplies": supplies})
+        warn_pct, crit_pct = get_effective_thresholds(p)
+        printer_data.append({"printer": p, "telemetry": latest, "supplies": supplies,
+                              "warn_pct": warn_pct, "crit_pct": crit_pct})
     return printer_data
 
 
