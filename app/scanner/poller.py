@@ -115,14 +115,15 @@ def _update_printer_status(printer: Printer, data: PrinterData, db_session: Sess
     if data.is_online:
         printer.consecutive_failures = 0
         printer.last_seen_at = datetime.utcnow()
-        # Populate metadata if not already set
-        if not printer.model and data.model:
+        # Always update model/serial/hostname so vendor enrichment improvements
+        # take effect on next poll (don't lock in stale sysDescr values)
+        if data.model:
             printer.model = data.model
-        if not printer.serial_number and data.serial_number:
+        if data.serial_number:
             printer.serial_number = data.serial_number
-        if not printer.hostname and data.sysname:
+        if data.sysname:
             printer.hostname = data.sysname
-        if data.vendor != "generic" and printer.vendor == "generic":
+        if data.vendor != "generic":
             printer.vendor = data.vendor
     else:
         printer.consecutive_failures += 1
