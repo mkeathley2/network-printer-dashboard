@@ -93,7 +93,7 @@ function rescan(cidr) {
   input.value = cidr;
   input.scrollIntoView({behavior: 'smooth', block: 'center'});
   setTimeout(function() {
-    htmx.trigger(document.querySelector('form[hx-post]'), 'submit');
+    document.querySelector('form[hx-post] button[type="submit"]').click();
   }, 300);
 }
 </script>
