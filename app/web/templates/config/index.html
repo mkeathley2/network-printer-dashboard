@@ -126,6 +126,27 @@
         </form>
       </div>
     </div>
+
+    <div class="card mt-3">
+      <div class="card-header fw-semibold">Timezone</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">All timestamps in the dashboard will display in this timezone.</p>
+        <form method="POST" action="{{ url_for('config.save_timezone') }}">
+          <div class="mb-3">
+            <select name="timezone" class="form-select" style="width:260px;">
+              {% for tz_value, tz_label in timezone_choices %}
+              <option value="{{ tz_value }}" {% if timezone == tz_value %}selected{% endif %}>
+                {{ tz_label }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i>Save Timezone
+          </button>
+        </form>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -164,7 +185,7 @@
                 {% endif %}
               </td>
               <td class="text-muted small">
-                {{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else 'Never' }}
+                {{ u.last_login_at | localtime if u.last_login_at else 'Never' }}
               </td>
               <td>
                 <form method="POST" action="{{ url_for('config.set_user_password', user_id=u.id) }}"
@@ -516,7 +537,7 @@
         {% for entry in audit_entries %}
         <tr class="{% if not entry.success %}table-danger{% endif %}">
           <td class="ps-3 text-muted small text-nowrap">
-            {{ entry.occurred_at.strftime('%Y-%m-%d %H:%M') }}
+            {{ entry.occurred_at | localtime }}
           </td>
           <td class="small fw-semibold">{{ entry.username }}</td>
           <td>

@@ -51,7 +51,7 @@
                 </span>
               </div>
               <div class="text-muted small">
-                {{ scan.started_at.strftime('%Y-%m-%d %H:%M') }} &mdash;
+                {{ scan.started_at | localtime }} &mdash;
                 {{ scan.hosts_found }}/{{ scan.hosts_probed }} found
               </div>
             </div>

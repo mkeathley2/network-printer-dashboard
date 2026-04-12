@@ -19,7 +19,7 @@
                 {% endif %}
               </td></tr>
           <tr><th class="text-muted">Last Login</th>
-              <td>{{ current_user.last_login_at.strftime('%Y-%m-%d %H:%M') if current_user.last_login_at else 'Never' }}</td></tr>
+              <td>{{ current_user.last_login_at | localtime if current_user.last_login_at else 'Never' }}</td></tr>
         </table>
       </div>
     </div>

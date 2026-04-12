@@ -71,9 +71,9 @@
           <tr><th class="text-muted">Vendor</th><td>{{ printer.vendor | upper }}</td></tr>
           <tr><th class="text-muted">SNMP Ver.</th><td>v{{ printer.snmp_version }}</td></tr>
           <tr><th class="text-muted">Community</th><td><code>{{ printer.snmp_community }}</code></td></tr>
-          <tr><th class="text-muted">Added</th><td>{{ printer.added_at.strftime('%Y-%m-%d') }}</td></tr>
+          <tr><th class="text-muted">Added</th><td>{{ printer.added_at | localtime('%Y-%m-%d') }}</td></tr>
           <tr><th class="text-muted">Last Seen</th>
-              <td>{{ printer.last_seen_at.strftime('%Y-%m-%d %H:%M') if printer.last_seen_at else 'Never' }}</td></tr>
+              <td>{{ printer.last_seen_at | localtime if printer.last_seen_at else 'Never' }}</td></tr>
           {% if latest_telemetry %}
           <tr><th class="text-muted">Page Count</th>
               <td>{{ '{:,}'.format(latest_telemetry.page_count) if latest_telemetry.page_count else '—' }}</td></tr>
@@ -126,7 +126,7 @@
         Supply Levels
         {% if latest_telemetry %}
           <small class="text-muted fw-normal">
-            Last polled: {{ latest_telemetry.polled_at.strftime('%Y-%m-%d %H:%M') }}
+            Last polled: {{ latest_telemetry.polled_at | localtime }}
           </small>
         {% endif %}
       </div>

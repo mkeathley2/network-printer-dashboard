@@ -31,7 +31,7 @@
         {% for event, printer in events %}
         <tr>
           <td class="ps-3 text-muted small text-nowrap">
-            {{ event.occurred_at.strftime('%Y-%m-%d %H:%M') }}
+            {{ event.occurred_at | localtime }}
           </td>
           <td>
             <a href="{{ url_for('printers.detail', printer_id=printer.id) }}"

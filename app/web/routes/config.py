@@ -13,6 +13,7 @@ from app.models import Printer, PrinterImportData, SiteSetting, User
 from app.models.location import Location
 from app.models.printer import PrinterGroup
 from app.utils.audit import audit
+from app.utils.timezone import TIMEZONE_CHOICES
 from app.web.routes.auth import admin_required
 
 bp = Blueprint("config", __name__, url_prefix="/config")
@@ -95,6 +96,8 @@ def index():
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
     poll_interval = _get_setting("poll_interval_minutes", str(POLL_INTERVAL_DEFAULT))
 
+    timezone = _get_setting("timezone", "America/Chicago")
+
     tab = request.args.get("tab", "smtp")
 
     audit_entries = []
@@ -118,6 +121,8 @@ def index():
         warn_pct=warn_pct,
         crit_pct=crit_pct,
         poll_interval=poll_interval,
+        timezone=timezone,
+        timezone_choices=TIMEZONE_CHOICES,
         audit_entries=audit_entries,
         import_applied_count=import_applied_count,
         import_pending_rows=import_pending_rows,
@@ -175,6 +180,26 @@ def test_smtp():
     audit(current_user.username, "config_smtp_test", "smtp",
           f"Test email {'succeeded' if ok else 'failed'}: {msg}", success=ok)
     flash(msg, "success" if ok else "danger")
+    return redirect(url_for("config.index", tab="smtp"))
+
+
+# ---------------------------------------------------------------------------
+# Timezone setting
+# ---------------------------------------------------------------------------
+@bp.route("/timezone", methods=["POST"])
+@admin_required
+def save_timezone():
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    tz = request.form.get("timezone", "America/Chicago").strip()
+    try:
+        ZoneInfo(tz)
+    except (ZoneInfoNotFoundError, Exception):
+        flash(f"Unknown timezone '{tz}'.", "danger")
+        return redirect(url_for("config.index", tab="smtp"))
+    _set_setting("timezone", tz)
+    db.session.commit()
+    audit(current_user.username, "config_timezone", "site", f"Set timezone to {tz}")
+    flash(f"Timezone set to {tz}.", "success")
     return redirect(url_for("config.index", tab="smtp"))
 
 

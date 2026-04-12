@@ -61,7 +61,7 @@
           <td class="text-muted small">{{ p.model or '—' }}</td>
           <td class="text-muted small">{{ p.serial_number or '—' }}</td>
           <td class="text-muted small">
-            {{ p.last_seen_at.strftime('%Y-%m-%d %H:%M') if p.last_seen_at else 'Never' }}
+            {{ p.last_seen_at | localtime if p.last_seen_at else 'Never' }}
           </td>
           <td class="text-end">
             <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="btn btn-sm btn-outline-primary me-1">
@@ -118,7 +118,7 @@
           <td class="text-muted small">{{ p.model or '—' }}</td>
           <td class="text-muted small">{{ p.serial_number or '—' }}</td>
           <td class="text-muted small">
-            {{ p.last_seen_at.strftime('%Y-%m-%d %H:%M') if p.last_seen_at else 'Never' }}
+            {{ p.last_seen_at | localtime if p.last_seen_at else 'Never' }}
           </td>
           <td class="text-end">
             <form method="POST" action="{{ url_for('printers.restore', printer_id=p.id) }}"

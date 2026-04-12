@@ -284,6 +284,7 @@ def discovery_add_all(scan_id: int):
 @bp.route("/api/history/<int:printer_id>/supplies")
 @login_required
 def api_supply_history(printer_id: int):
+    from app.utils.timezone import to_local
     rows = (
         db.session.query(SupplySnapshot)
         .filter_by(printer_id=printer_id)
@@ -298,7 +299,7 @@ def api_supply_history(printer_id: int):
             series[key] = {"label": label, "color": row.supply_color, "data": []}
         if row.level_pct is not None:
             series[key]["data"].append({
-                "x": row.polled_at.isoformat(),
+                "x": to_local(row.polled_at).isoformat(),
                 "y": row.level_pct,
             })
     return jsonify(list(series.values()))
@@ -310,6 +311,7 @@ def api_supply_history(printer_id: int):
 @bp.route("/api/history/<int:printer_id>/pages")
 @login_required
 def api_page_history(printer_id: int):
+    from app.utils.timezone import to_local
     rows = (
         db.session.query(TelemetrySnapshot)
         .filter_by(printer_id=printer_id)
@@ -317,5 +319,5 @@ def api_page_history(printer_id: int):
         .order_by(TelemetrySnapshot.polled_at.asc())
         .all()
     )
-    data = [{"x": r.polled_at.isoformat(), "y": r.page_count} for r in rows]
+    data = [{"x": to_local(r.polled_at).isoformat(), "y": r.page_count} for r in rows]
     return jsonify(data)

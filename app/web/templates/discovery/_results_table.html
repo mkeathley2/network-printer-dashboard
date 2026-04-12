@@ -43,8 +43,8 @@
     <small class="text-muted">
       Probed: <strong>{{ scan.hosts_probed }}</strong> &nbsp;|&nbsp;
       Found: <strong>{{ scan.hosts_found }}</strong> &nbsp;|&nbsp;
-      Started: {{ scan.started_at.strftime('%H:%M:%S') }}
-      {% if scan.finished_at %} &mdash; Finished: {{ scan.finished_at.strftime('%H:%M:%S') }}{% endif %}
+      Started: {{ scan.started_at | localtime('%H:%M:%S') }}
+      {% if scan.finished_at %} &mdash; Finished: {{ scan.finished_at | localtime('%H:%M:%S') }}{% endif %}
     </small>
   </div>
   {% endif %}

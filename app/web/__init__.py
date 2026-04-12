@@ -70,6 +70,13 @@ def create_app(yaml_path: str | None = None) -> Flask:
     from app.web.routes.auth import register_error_handlers
     register_error_handlers(app)
 
+    # Jinja filter: convert UTC datetime → site local time string
+    @app.template_filter("localtime")
+    def localtime_filter(dt, fmt="%Y-%m-%d %H:%M"):
+        from app.utils.timezone import to_local
+        local = to_local(dt)
+        return local.strftime(fmt) if local else ""
+
     # Inject removed_count into every template for the navbar badge
     @app.context_processor
     def inject_globals():
