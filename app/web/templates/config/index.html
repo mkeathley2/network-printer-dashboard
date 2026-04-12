@@ -337,18 +337,56 @@
       <div class="card-header fw-semibold">Import Status</div>
       <div class="card-body">
         {% if import_count %}
-        <p class="mb-1">
-          <span class="badge bg-success fs-6">{{ import_count }}</span>
-          printer record{{ 's' if import_count != 1 }} currently staged.
-        </p>
-        <p class="text-muted small mt-2">
-          These records will auto-fill fields for any printer whose IP matches when it is added
-          or discovered. Existing manual data is never overwritten.
-        </p>
-        <hr>
+        <div class="d-flex gap-3 mb-2 flex-wrap">
+          <div class="text-center">
+            <div class="fs-4 fw-bold text-secondary">{{ import_count }}</div>
+            <div class="small text-muted">Staged</div>
+          </div>
+          <div class="text-center">
+            <div class="fs-4 fw-bold text-success">{{ import_matched }}</div>
+            <div class="small text-muted">Matched</div>
+          </div>
+          <div class="text-center">
+            <div class="fs-4 fw-bold {% if import_unmatched_rows %}text-warning{% else %}text-success{% endif %}">
+              {{ import_unmatched_rows | length }}
+            </div>
+            <div class="small text-muted">
+              {% if import_unmatched_rows %}
+              <a href="#" class="text-warning" data-bs-toggle="collapse" data-bs-target="#unmatched-list">
+                Unmatched <i class="bi bi-chevron-down"></i>
+              </a>
+              {% else %}
+              Unmatched
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {% if import_unmatched_rows %}
+        <div class="collapse mb-3" id="unmatched-list">
+          <div class="card card-body p-2" style="max-height:200px; overflow-y:auto;">
+            <p class="small text-muted mb-2">These IPs are in the spreadsheet but not yet on the dashboard:</p>
+            <table class="table table-sm table-hover mb-0 small">
+              <thead class="table-light">
+                <tr><th>IP</th><th>Location</th><th>Person</th><th>SQL #</th></tr>
+              </thead>
+              <tbody>
+                {% for r in import_unmatched_rows %}
+                <tr>
+                  <td><code>{{ r.ip_address }}</code></td>
+                  <td>{{ r.location_name or '—' }}</td>
+                  <td>{{ r.assigned_person or '—' }}</td>
+                  <td>{{ r.sql_number or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
         <p class="text-muted small mb-2">
-          Already have printers on the dashboard that weren't filled in yet?
-          Click below to apply the staged import data to all existing printers now.
+          Existing manual data is never overwritten. To fill in fields on printers already on the dashboard:
         </p>
         <form method="POST" action="{{ url_for('config.apply_import_data') }}">
           <button type="submit" class="btn btn-outline-primary btn-sm">
