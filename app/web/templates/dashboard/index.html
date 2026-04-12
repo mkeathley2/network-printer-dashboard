@@ -60,7 +60,9 @@
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
             <i class="bi bi-geo-alt me-1"></i>
-            {% if active_location_id %}
+            {% if active_location_id == 0 %}
+              No Location
+            {% elif active_location_id %}
               {{ locations | selectattr('id', 'equalto', active_location_id) | map(attribute='name') | first | default('Filter') }}
             {% else %}
               All Locations
@@ -78,6 +80,13 @@
                  href="{{ url_for('dashboard.index', location=loc.id) }}">{{ loc.name }}</a>
             </li>
             {% endfor %}
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <a class="dropdown-item {% if active_location_id == 0 %}active{% endif %}"
+                 href="{{ url_for('dashboard.index', location=0) }}">
+                <span class="text-muted"><i class="bi bi-question-circle me-1"></i>No Location</span>
+              </a>
+            </li>
           </ul>
         </div>
         {% endif %}

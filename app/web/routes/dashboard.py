@@ -55,7 +55,9 @@ def index():
     location_id = request.args.get("location", type=int)
 
     query = db.session.query(Printer).filter_by(is_active=True)
-    if location_id:
+    if location_id == 0:
+        query = query.filter(Printer.location_id.is_(None))
+    elif location_id:
         query = query.filter_by(location_id=location_id)
     printers = query.order_by(Printer.display_name, Printer.ip_address).all()
 
