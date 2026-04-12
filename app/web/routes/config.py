@@ -71,6 +71,7 @@ def index():
         for loc in locations
     }
     import_count = db.session.query(PrinterImportData).count()
+    removed_count = db.session.query(Printer).filter_by(is_active=False).count()
 
     # Compute import record status vs active printers
     printers_by_ip = {
@@ -100,6 +101,15 @@ def index():
 
     tab = request.args.get("tab", "smtp")
 
+    removed_printers = []
+    if tab == "removed":
+        removed_printers = (
+            db.session.query(Printer)
+            .filter_by(is_active=False)
+            .order_by(Printer.display_name, Printer.ip_address)
+            .all()
+        )
+
     audit_entries = []
     if tab == "activity":
         from app.models.audit import AuditLog
@@ -127,6 +137,8 @@ def index():
         import_applied_count=import_applied_count,
         import_pending_rows=import_pending_rows,
         import_undiscovered_rows=import_undiscovered_rows,
+        removed_count=removed_count,
+        removed_printers=removed_printers,
     )
 
 
