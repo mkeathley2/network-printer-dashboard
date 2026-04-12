@@ -17,6 +17,15 @@ from app.snmp.normalizer import SupplyData
 
 logger = logging.getLogger(__name__)
 
+def is_alert_enabled(event_type: str) -> bool:
+    """Return True if the given alert type should send an email (default: enabled)."""
+    try:
+        from app.web.routes.config import _get_setting
+        return _get_setting(f"alert_{event_type}", "1") == "1"
+    except Exception:
+        return True  # fail open — always send if we can't read the setting
+
+
 EVENT_LABELS = {
     "toner_warning":   "Toner Low Warning",
     "toner_critical":  "Toner Critically Low",

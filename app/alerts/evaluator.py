@@ -65,7 +65,10 @@ def _log_event(
 def _send(event_type: str, printer: Printer, supply: SupplyData | None, level_pct: int | None) -> bool:
     """Attempt to send an alert email. Returns True if sent successfully."""
     try:
-        from app.alerts.notifier import send_alert_email
+        from app.alerts.notifier import is_alert_enabled, send_alert_email
+        if not is_alert_enabled(event_type):
+            logger.debug("Alert type '%s' is disabled — skipping email for %s", event_type, printer.ip_address)
+            return False
         send_alert_email(event_type, printer, supply, level_pct)
         return True
     except Exception:

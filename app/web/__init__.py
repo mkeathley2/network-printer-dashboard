@@ -137,6 +137,20 @@ def _run_migrations() -> None:
                 pass
 
         # Migrate existing PrinterGroup rows → Location rows (one-time, skipped if locations exist)
+        # Clean up ".0" decimal artifacts left by openpyxl float conversion
+        try:
+            conn.execute(text(
+                "UPDATE printers SET phone_ext = CAST(CAST(phone_ext AS UNSIGNED) AS CHAR) "
+                "WHERE phone_ext REGEXP '^[0-9]+\\.0$'"
+            ))
+            conn.execute(text(
+                "UPDATE printers SET assigned_computer = CAST(CAST(assigned_computer AS UNSIGNED) AS CHAR) "
+                "WHERE assigned_computer REGEXP '^[0-9]+\\.0$'"
+            ))
+            conn.commit()
+        except Exception as e:
+            logger.debug("Decimal cleanup migration skipped: %s", e)
+
         try:
             result = conn.execute(text("SELECT COUNT(*) FROM locations"))
             if result.scalar() == 0:

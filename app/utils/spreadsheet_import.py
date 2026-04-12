@@ -59,6 +59,10 @@ def _clean_ip(val) -> Optional[str]:
 def _str(val) -> Optional[str]:
     if val is None:
         return None
+    # openpyxl reads numeric cells as float; convert whole numbers to int first
+    # so that str(5.0) becomes "5" instead of "5.0"
+    if isinstance(val, float) and val.is_integer():
+        val = int(val)
     s = str(val).strip()
     return s if s and s.lower() not in ("n/a", "na", "none", "-") else None
 

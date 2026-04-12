@@ -25,6 +25,17 @@ THRESHOLD_WARN_DEFAULT = 15
 THRESHOLD_CRIT_DEFAULT = 5
 POLL_INTERVAL_DEFAULT = 60
 
+ALERT_TOGGLE_DEFS = [
+    ("alert_printer_offline",  "Printer Offline"),
+    ("alert_printer_online",   "Printer Back Online"),
+    ("alert_toner_warning",    "Toner Low Warning"),
+    ("alert_toner_critical",   "Toner Critically Low"),
+    ("alert_toner_replaced",   "Toner Replaced"),
+    ("alert_drum_warning",     "Drum Life Low Warning"),
+    ("alert_drum_critical",    "Drum Life Critically Low"),
+    ("alert_drum_replaced",    "Drum Unit Replaced"),
+]
+
 
 def get_effective_thresholds(printer=None) -> tuple[int, int]:
     """
@@ -120,6 +131,8 @@ def index():
             .all()
         )
 
+    alert_settings = {key: _get_setting(key, "1") for key, _ in ALERT_TOGGLE_DEFS}
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -139,7 +152,24 @@ def index():
         import_undiscovered_rows=import_undiscovered_rows,
         removed_count=removed_count,
         removed_printers=removed_printers,
+        alert_settings=alert_settings,
+        alert_toggle_defs=ALERT_TOGGLE_DEFS,
     )
+
+
+# ---------------------------------------------------------------------------
+# Alert type toggles
+# ---------------------------------------------------------------------------
+@bp.route("/save-alert-settings", methods=["POST"])
+@admin_required
+def save_alert_settings():
+    for key, _ in ALERT_TOGGLE_DEFS:
+        val = "1" if request.form.get(key) else "0"
+        _set_setting(key, val)
+    db.session.commit()
+    audit(current_user.username, "config_alerts", "site", "Updated alert email settings")
+    flash("Alert settings saved.", "success")
+    return redirect(url_for("config.index", tab="alerts"))
 
 
 # ---------------------------------------------------------------------------
