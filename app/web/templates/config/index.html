@@ -436,8 +436,28 @@
 
 <!-- ===================== THRESHOLDS TAB ===================== -->
 {% elif active_tab == 'thresholds' %}
-<div class="row">
+<div class="row g-3">
   <div class="col-lg-5">
+    <div class="card mb-3">
+      <div class="card-header fw-semibold">Poll Interval</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">How often the system polls all printers via SNMP. Takes effect immediately without restarting.</p>
+        <form method="POST" action="{{ url_for('config.save_poll_interval') }}">
+          <div class="mb-3">
+            <label class="form-label">Poll every</label>
+            <div class="input-group" style="width:160px;">
+              <input type="number" name="poll_interval_minutes" class="form-control"
+                     min="1" max="1440" value="{{ poll_interval }}" required>
+              <span class="input-group-text">min</span>
+            </div>
+            <div class="form-text">Default: 60 minutes. Range: 1–1440 (24 hrs).</div>
+          </div>
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i>Save
+          </button>
+        </form>
+      </div>
+    </div>
     <div class="card">
       <div class="card-header fw-semibold">Site-Wide Alert Thresholds</div>
       <div class="card-body">

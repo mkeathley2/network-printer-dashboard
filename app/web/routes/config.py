@@ -22,6 +22,7 @@ SMTP_KEYS = ["smtp_host", "smtp_port", "smtp_auth", "smtp_user", "smtp_password"
 
 THRESHOLD_WARN_DEFAULT = 15
 THRESHOLD_CRIT_DEFAULT = 5
+POLL_INTERVAL_DEFAULT = 60
 
 
 def get_effective_thresholds(printer=None) -> tuple[int, int]:
@@ -92,6 +93,7 @@ def index():
 
     warn_pct = _get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT))
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
+    poll_interval = _get_setting("poll_interval_minutes", str(POLL_INTERVAL_DEFAULT))
 
     tab = request.args.get("tab", "smtp")
 
@@ -115,6 +117,7 @@ def index():
         active_tab=tab,
         warn_pct=warn_pct,
         crit_pct=crit_pct,
+        poll_interval=poll_interval,
         audit_entries=audit_entries,
         import_applied_count=import_applied_count,
         import_pending_rows=import_pending_rows,
@@ -173,6 +176,34 @@ def test_smtp():
           f"Test email {'succeeded' if ok else 'failed'}: {msg}", success=ok)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("config.index", tab="smtp"))
+
+
+# ---------------------------------------------------------------------------
+# Poll interval setting
+# ---------------------------------------------------------------------------
+@bp.route("/poll-interval", methods=["POST"])
+@admin_required
+def save_poll_interval():
+    try:
+        minutes = int(request.form.get("poll_interval_minutes", POLL_INTERVAL_DEFAULT))
+    except (ValueError, TypeError):
+        flash("Invalid interval — must be a whole number of minutes.", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    if not (1 <= minutes <= 1440):
+        flash("Interval must be between 1 and 1440 minutes (24 hours).", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    _set_setting("poll_interval_minutes", str(minutes))
+    db.session.commit()
+    # Reschedule the live job without restarting the server
+    try:
+        from app.core.extensions import scheduler
+        scheduler.reschedule_job("poll_job", trigger="interval", minutes=minutes)
+    except Exception:
+        pass  # Scheduler not running (e.g. dev/test mode) — setting still saved
+    audit(current_user.username, "config_poll_interval", "scheduler",
+          f"Set poll interval to {minutes} minutes")
+    flash(f"Poll interval updated to every {minutes} minutes.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
 
 
 # ---------------------------------------------------------------------------

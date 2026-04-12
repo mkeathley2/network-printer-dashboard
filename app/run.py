@@ -33,19 +33,25 @@ def _scheduled_poll() -> None:
             logger.exception("Error during scheduled poll")
 
 
-# Wire up the hourly poll job
+# Wire up the poll job — interval comes from DB setting if present, else config.yaml default
 from app.core.config import config  # noqa: E402 (after app creation)
+
+with app.app_context():
+    from app.core.database import db
+    from app.models import SiteSetting
+    row = db.session.get(SiteSetting, "poll_interval_minutes")
+    _interval = int(row.value) if (row and row.value) else config.polling.interval_minutes
 
 scheduler.add_job(
     _scheduled_poll,
     trigger="interval",
-    minutes=config.polling.interval_minutes,
-    id="hourly_poll",
+    minutes=_interval,
+    id="poll_job",
     replace_existing=True,
 )
 
 scheduler.start()
-logger.info("Scheduler started. Poll interval: %d minutes", config.polling.interval_minutes)
+logger.info("Scheduler started. Poll interval: %d minutes", _interval)
 
 if __name__ == "__main__":
     # Development server only; production uses gunicorn
