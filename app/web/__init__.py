@@ -104,6 +104,10 @@ def _run_migrations() -> None:
         # Audit log table index (table created by db.create_all, index may not exist)
         "ALTER TABLE audit_log ADD INDEX ix_audit_log_occurred_at (occurred_at)",
         "ALTER TABLE audit_log ADD INDEX ix_audit_log_action (action)",
+        # Expand vendor enum to include ricoh
+        "ALTER TABLE printers MODIFY COLUMN vendor ENUM('hp','brother','canon','kyocera','ricoh','generic') NOT NULL DEFAULT 'generic'",
+        # Expand snmp_version enum to include v1
+        "ALTER TABLE printers MODIFY COLUMN snmp_version ENUM('2c','3','1') NOT NULL DEFAULT '2c'",
         # Per-printer alert threshold overrides
         "ALTER TABLE printers ADD COLUMN supply_warn_pct SMALLINT NULL",
         "ALTER TABLE printers ADD COLUMN supply_crit_pct SMALLINT NULL",

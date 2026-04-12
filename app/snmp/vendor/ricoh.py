@@ -27,7 +27,9 @@ def enrich(data: PrinterData, snmp_params: dict, timeout: int = 3, retries: int 
         k_stripped = k.lstrip(".")
         if k_stripped.startswith(oids.RICOH_MODEL.lstrip(".")):
             model = str(v).strip()
-            if model:
+            # Only use Ricoh-specific model if generic probe didn't already get one,
+            # and reject purely numeric values (product ID codes, not model names)
+            if model and not data.model and not model.isdigit():
                 data.model = model
         elif k_stripped.startswith(oids.RICOH_SERIAL.lstrip(".")):
             serial = str(v).strip()

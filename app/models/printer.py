@@ -34,7 +34,7 @@ class Printer(Base):
     hostname: Mapped[Optional[str]] = mapped_column(String(255))
     display_name: Mapped[Optional[str]] = mapped_column(String(255))
     vendor: Mapped[str] = mapped_column(
-        Enum("hp", "brother", "canon", "kyocera", "generic", name="vendor_enum"),
+        Enum("hp", "brother", "canon", "kyocera", "ricoh", "generic", name="vendor_enum"),
         nullable=False,
         default="generic",
     )
@@ -44,7 +44,7 @@ class Printer(Base):
 
     # SNMP credentials
     snmp_version: Mapped[str] = mapped_column(
-        Enum("2c", "3", name="snmp_version_enum"),
+        Enum("2c", "3", "1", name="snmp_version_enum"),
         nullable=False,
         default="2c",
     )
