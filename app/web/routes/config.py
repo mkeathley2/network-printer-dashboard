@@ -299,6 +299,25 @@ def import_spreadsheet():
     return redirect(url_for("config.index", tab="import"))
 
 
+@bp.route("/apply-import-data", methods=["POST"])
+@admin_required
+def apply_import_data():
+    """Apply staged import data to all existing active printers that are missing fields."""
+    from app.web.routes.printers import _apply_import_data
+
+    printers = db.session.query(Printer).filter_by(is_active=True).all()
+    updated = 0
+    for printer in printers:
+        changed = _apply_import_data(printer)
+        if changed:
+            updated += 1
+    db.session.commit()
+    audit(current_user.username, "import_apply_all", "all printers",
+          f"Applied import data to {updated} existing printer(s)")
+    flash(f"Import data applied to {updated} printer(s).", "success" if updated else "info")
+    return redirect(url_for("config.index", tab="import"))
+
+
 # ---------------------------------------------------------------------------
 # Activity log CSV export
 # ---------------------------------------------------------------------------

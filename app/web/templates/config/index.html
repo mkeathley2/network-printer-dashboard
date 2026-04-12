@@ -345,6 +345,16 @@
           These records will auto-fill fields for any printer whose IP matches when it is added
           or discovered. Existing manual data is never overwritten.
         </p>
+        <hr>
+        <p class="text-muted small mb-2">
+          Already have printers on the dashboard that weren't filled in yet?
+          Click below to apply the staged import data to all existing printers now.
+        </p>
+        <form method="POST" action="{{ url_for('config.apply_import_data') }}">
+          <button type="submit" class="btn btn-outline-primary btn-sm">
+            <i class="bi bi-arrow-repeat me-1"></i>Apply to Existing Printers
+          </button>
+        </form>
         {% else %}
         <p class="text-muted small">No import data staged yet. Upload a spreadsheet to get started.</p>
         {% endif %}
