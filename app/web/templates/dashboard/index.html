@@ -48,6 +48,14 @@
         <span class="badge bg-secondary ms-1">{{ printer_data|length }}</span>
       </h5>
       <div class="d-flex gap-2 align-items-center flex-wrap">
+        <div class="input-group input-group-sm" style="width:220px;">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input type="text" id="printerSearch" class="form-control" placeholder="Search printers…"
+                 oninput="filterPrinters(this.value)">
+          <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('printerSearch').value=''; filterPrinters('');" title="Clear">
+            <i class="bi bi-x"></i>
+          </button>
+        </div>
         {% if locations %}
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
@@ -127,3 +135,39 @@
 
 </div>
 {% endblock %}
+
+{% block extra_scripts %}
+<script>
+function filterPrinters(query) {
+  const q = query.trim().toLowerCase();
+  const grid = document.getElementById('printer-grid');
+  if (!grid) return;
+  let visible = 0;
+  grid.querySelectorAll('.printer-card-col').forEach(col => {
+    const match = !q || col.dataset.search.includes(q);
+    col.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  const badge = document.querySelector('h5 .badge');
+  if (badge) badge.textContent = visible;
+  let msg = document.getElementById('search-no-results');
+  if (visible === 0 && q) {
+    if (!msg) {
+      msg = document.createElement('p');
+      msg.id = 'search-no-results';
+      msg.className = 'text-muted text-center py-4';
+      msg.textContent = 'No printers match your search.';
+      grid.appendChild(msg);
+    }
+    msg.style.display = '';
+  } else if (msg) {
+    msg.style.display = 'none';
+  }
+}
+// Re-apply search after HTMX swaps the grid (auto-refresh every 5m)
+document.addEventListener('htmx:afterSwap', function(e) {
+  const q = document.getElementById('printerSearch');
+  if (q && q.value) filterPrinters(q.value);
+});
+</script>
+{% endblock extra_scripts %}

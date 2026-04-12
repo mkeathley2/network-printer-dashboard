@@ -13,7 +13,19 @@
   {% set warn_pct = item.warn_pct if item.warn_pct is defined else 15 %}
   {% set crit_pct = item.crit_pct if item.crit_pct is defined else 5 %}
 
-  <div class="col">
+  <div class="col printer-card-col"
+       data-search="{{ [
+         p.ip_address,
+         p.effective_name,
+         p.vendor,
+         p.model,
+         p.hostname,
+         p.assigned_person,
+         p.sql_number,
+         p.assigned_computer,
+         p.phone_ext,
+         p.location.name if p.location else '',
+       ] | select | join(' ') | lower }}">
     <div class="card card-printer h-100">
       <div class="card-header d-flex justify-content-between align-items-center py-2">
         <span>
