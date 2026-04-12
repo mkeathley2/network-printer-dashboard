@@ -85,3 +85,16 @@
   </div>
 </div>
 {% endblock %}
+
+{% block extra_scripts %}
+<script>
+function rescan(cidr) {
+  var input = document.querySelector('input[name="cidr_range"]');
+  input.value = cidr;
+  input.scrollIntoView({behavior: 'smooth', block: 'center'});
+  setTimeout(function() {
+    htmx.trigger(document.querySelector('form[hx-post]'), 'submit');
+  }, 300);
+}
+</script>
+{% endblock extra_scripts %}

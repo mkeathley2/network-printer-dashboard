@@ -22,6 +22,12 @@
         <span class="badge bg-danger">Failed</span>
       {% endif %}
       {% set new_count = results | selectattr('already_known', 'equalto', false) | list | length %}
+      {% if not is_running and scan and scan.cidr_range and current_user.is_admin %}
+        <button type="button" class="btn btn-sm btn-outline-primary"
+                onclick="rescan({{ scan.cidr_range | tojson }})">
+          <i class="bi bi-arrow-repeat me-1"></i>Re-scan
+        </button>
+      {% endif %}
       {% if not is_running and new_count > 0 and current_user.is_admin %}
         <form method="POST" action="{{ url_for('api.discovery_add_all', scan_id=scan_id) }}">
           <button type="submit" class="btn btn-sm btn-success">
