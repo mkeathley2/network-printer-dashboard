@@ -24,7 +24,7 @@
       {% set new_count = results | selectattr('already_known', 'equalto', false) | list | length %}
       {% if not is_running and scan and scan.cidr_range and current_user.is_admin %}
         <button type="button" class="btn btn-sm btn-outline-primary"
-                onclick="rescan({{ scan.cidr_range | tojson }})">
+                data-cidr="{{ scan.cidr_range }}" onclick="rescan(this.dataset.cidr)">
           <i class="bi bi-arrow-repeat me-1"></i>Re-scan
         </button>
       {% endif %}
