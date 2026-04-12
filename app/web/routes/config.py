@@ -70,11 +70,25 @@ def index():
     }
     import_count = db.session.query(PrinterImportData).count()
 
-    # Compute matched/unmatched import records vs active printers
-    active_ips = {ip for (ip,) in db.session.query(Printer.ip_address).filter_by(is_active=True).all()}
+    # Compute import record status vs active printers
+    printers_by_ip = {
+        p.ip_address: p
+        for p in db.session.query(Printer).filter_by(is_active=True).all()
+    }
     import_rows = db.session.query(PrinterImportData).order_by(PrinterImportData.ip_address).all()
-    import_matched = sum(1 for r in import_rows if r.ip_address in active_ips)
-    import_unmatched_rows = [r for r in import_rows if r.ip_address not in active_ips]
+
+    import_applied_count = 0   # on dashboard + has data applied
+    import_pending_rows = []   # on dashboard + data not yet applied
+    import_undiscovered_rows = []  # IP not on dashboard at all
+
+    for r in import_rows:
+        printer = printers_by_ip.get(r.ip_address)
+        if printer is None:
+            import_undiscovered_rows.append(r)
+        elif printer.location_id or printer.assigned_person or printer.sql_number:
+            import_applied_count += 1
+        else:
+            import_pending_rows.append(r)
 
     warn_pct = _get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT))
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
@@ -102,8 +116,9 @@ def index():
         warn_pct=warn_pct,
         crit_pct=crit_pct,
         audit_entries=audit_entries,
-        import_matched=import_matched,
-        import_unmatched_rows=import_unmatched_rows,
+        import_applied_count=import_applied_count,
+        import_pending_rows=import_pending_rows,
+        import_undiscovered_rows=import_undiscovered_rows,
     )
 
 

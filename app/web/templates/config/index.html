@@ -337,41 +337,53 @@
       <div class="card-header fw-semibold">Import Status</div>
       <div class="card-body">
         {% if import_count %}
-        <div class="d-flex gap-3 mb-2 flex-wrap">
+        <div class="d-flex gap-3 mb-3 flex-wrap">
           <div class="text-center">
             <div class="fs-4 fw-bold text-secondary">{{ import_count }}</div>
             <div class="small text-muted">Staged</div>
           </div>
           <div class="text-center">
-            <div class="fs-4 fw-bold text-success">{{ import_matched }}</div>
-            <div class="small text-muted">Matched</div>
+            <div class="fs-4 fw-bold text-success">{{ import_applied_count }}</div>
+            <div class="small text-muted">Applied</div>
           </div>
           <div class="text-center">
-            <div class="fs-4 fw-bold {% if import_unmatched_rows %}text-warning{% else %}text-success{% endif %}">
-              {{ import_unmatched_rows | length }}
+            <div class="fs-4 fw-bold {% if import_pending_rows %}text-warning{% else %}text-success{% endif %}">
+              {{ import_pending_rows | length }}
             </div>
             <div class="small text-muted">
-              {% if import_unmatched_rows %}
-              <a href="#" class="text-warning" data-bs-toggle="collapse" data-bs-target="#unmatched-list">
-                Unmatched <i class="bi bi-chevron-down"></i>
+              {% if import_pending_rows %}
+              <a href="#" class="text-warning text-decoration-none" data-bs-toggle="collapse" data-bs-target="#pending-list">
+                Pending <i class="bi bi-chevron-down"></i>
               </a>
               {% else %}
-              Unmatched
+              Pending
+              {% endif %}
+            </div>
+          </div>
+          <div class="text-center">
+            <div class="fs-4 fw-bold text-secondary">{{ import_undiscovered_rows | length }}</div>
+            <div class="small text-muted">
+              {% if import_undiscovered_rows %}
+              <a href="#" class="text-secondary text-decoration-none" data-bs-toggle="collapse" data-bs-target="#undiscovered-list">
+                Not Found <i class="bi bi-chevron-down"></i>
+              </a>
+              {% else %}
+              Not Found
               {% endif %}
             </div>
           </div>
         </div>
 
-        {% if import_unmatched_rows %}
-        <div class="collapse mb-3" id="unmatched-list">
+        {% if import_pending_rows %}
+        <div class="collapse mb-2" id="pending-list">
           <div class="card card-body p-2" style="max-height:200px; overflow-y:auto;">
-            <p class="small text-muted mb-2">These IPs are in the spreadsheet but not yet on the dashboard:</p>
+            <p class="small text-muted mb-2">These printers are on the dashboard but import data hasn't been applied yet:</p>
             <table class="table table-sm table-hover mb-0 small">
               <thead class="table-light">
                 <tr><th>IP</th><th>Location</th><th>Person</th><th>SQL #</th></tr>
               </thead>
               <tbody>
-                {% for r in import_unmatched_rows %}
+                {% for r in import_pending_rows %}
                 <tr>
                   <td><code>{{ r.ip_address }}</code></td>
                   <td>{{ r.location_name or '—' }}</td>
@@ -385,9 +397,30 @@
         </div>
         {% endif %}
 
-        <p class="text-muted small mb-2">
-          Existing manual data is never overwritten. To fill in fields on printers already on the dashboard:
-        </p>
+        {% if import_undiscovered_rows %}
+        <div class="collapse mb-2" id="undiscovered-list">
+          <div class="card card-body p-2" style="max-height:200px; overflow-y:auto;">
+            <p class="small text-muted mb-2">These IPs are in the spreadsheet but have not been discovered or added to the dashboard yet:</p>
+            <table class="table table-sm table-hover mb-0 small">
+              <thead class="table-light">
+                <tr><th>IP</th><th>Location</th><th>Person</th><th>SQL #</th></tr>
+              </thead>
+              <tbody>
+                {% for r in import_undiscovered_rows %}
+                <tr>
+                  <td><code>{{ r.ip_address }}</code></td>
+                  <td>{{ r.location_name or '—' }}</td>
+                  <td>{{ r.assigned_person or '—' }}</td>
+                  <td>{{ r.sql_number or '—' }}</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {% endif %}
+
+        <p class="text-muted small mb-2">Existing manual data is never overwritten.</p>
         <form method="POST" action="{{ url_for('config.apply_import_data') }}">
           <button type="submit" class="btn btn-outline-primary btn-sm">
             <i class="bi bi-arrow-repeat me-1"></i>Apply to Existing Printers
