@@ -149,6 +149,12 @@ def index():
         latest_release = get_latest_release()
         has_update = update_available()
 
+    # Backup tab
+    backup_stats = None
+    if tab == "backup":
+        from app.utils.backup import get_backup_stats
+        backup_stats = get_backup_stats()
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -173,6 +179,7 @@ def index():
         current_version=current_version,
         latest_release=latest_release,
         has_update=has_update,
+        backup_stats=backup_stats,
     )
 
 
@@ -551,3 +558,92 @@ def apply_update():
 def update_progress():
     """Shown while the container is rebuilding. JS polls /health and redirects when back."""
     return render_template("config/update_progress.html")
+
+
+# ---------------------------------------------------------------------------
+# Backup / Restore / Reset
+# ---------------------------------------------------------------------------
+@bp.route("/backup")
+@admin_required
+def backup():
+    """Stream a zip backup of the database."""
+    scope = request.args.get("scope", "config")
+    if scope not in ("config", "full"):
+        scope = "config"
+    from app.utils.backup import export_zip
+    from datetime import datetime
+    zip_bytes = export_zip(scope)
+    timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    filename = f"printer-dashboard-backup-{scope}-{timestamp}.zip"
+    audit(current_user.username, "backup_export", scope,
+          f"Exported {scope} backup ({len(zip_bytes) // 1024} KB)")
+    return Response(
+        zip_bytes,
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@bp.route("/restore", methods=["POST"])
+@admin_required
+def restore():
+    """Restore the database from an uploaded backup zip."""
+    f = request.files.get("backup_file")
+    if not f or not f.filename:
+        flash("No file selected.", "danger")
+        return redirect(url_for("config.index", tab="backup"))
+    if not f.filename.lower().endswith(".zip"):
+        flash("Only .zip backup files are supported.", "danger")
+        return redirect(url_for("config.index", tab="backup"))
+
+    from app.utils.backup import import_zip
+    try:
+        result = import_zip(f.read())
+    except ValueError as exc:
+        flash(f"Invalid backup file: {exc}", "danger")
+        return redirect(url_for("config.index", tab="backup"))
+    except RuntimeError as exc:
+        flash(f"Restore failed: {exc}", "danger")
+        return redirect(url_for("config.index", tab="backup"))
+
+    audit(current_user.username, "backup_restore", result.get("scope", "?"),
+          f"Restored {result['rows_restored']} rows across {len(result['tables_restored'])} tables "
+          f"from backup dated {result.get('backup_date', '?')}")
+    flash(
+        f"Restore complete — {result['rows_restored']:,} rows loaded across "
+        f"{len(result['tables_restored'])} tables. "
+        f"Backup scope: {result.get('scope', '?')}, "
+        f"created: {result.get('backup_date', '?')[:10]}.",
+        "success",
+    )
+    return redirect(url_for("config.index", tab="backup"))
+
+
+@bp.route("/reset", methods=["POST"])
+@admin_required
+def reset():
+    """Execute a granular factory reset based on selected categories."""
+    categories = request.form.getlist("categories")
+    if not categories:
+        flash("No categories selected — nothing was reset.", "warning")
+        return redirect(url_for("config.index", tab="backup"))
+
+    from app.utils.backup import execute_reset
+    try:
+        cleared = execute_reset(categories)
+    except Exception as exc:
+        logger.exception("Reset failed")
+        flash(f"Reset failed: {exc}", "danger")
+        return redirect(url_for("config.index", tab="backup"))
+
+    audit(current_user.username, "factory_reset", ",".join(categories),
+          f"Reset: {'; '.join(cleared)}")
+    flash(f"Reset complete: {', '.join(cleared)}.", "success")
+
+    # If users were wiped, the current session is now invalid — force logout
+    if "users" in categories:
+        from flask_login import logout_user
+        logout_user()
+        return redirect(url_for("auth.login"))
+
+    return redirect(url_for("dashboard.index"))

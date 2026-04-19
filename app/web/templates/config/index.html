@@ -63,6 +63,12 @@
       <i class="bi bi-cloud-download me-1"></i>Updates
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'backup' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='backup') }}">
+      <i class="bi bi-database me-1"></i>Backup &amp; Reset
+    </a>
+  </li>
 </ul>
 
 <!-- ===================== SMTP TAB ===================== -->
@@ -722,6 +728,169 @@
 
   </div>
 </div>
+
+<!-- ===================== BACKUP & RESET TAB ===================== -->
+{% elif active_tab == 'backup' %}
+<div class="row g-4">
+
+  <!-- LEFT: Backup & Restore -->
+  <div class="col-lg-6">
+
+    <!-- Backup -->
+    <div class="card mb-4">
+      <div class="card-header fw-semibold"><i class="bi bi-download me-2"></i>Download Backup</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Exports all database tables to a zip of JSON files.
+          <strong>Config-only</strong> skips telemetry history and alert events (smaller, faster).
+          <strong>Full</strong> includes everything.
+        </p>
+        {% if backup_stats %}
+        <table class="table table-sm table-borderless mb-3" style="max-width:380px;">
+          <thead class="table-light">
+            <tr><th>Scope</th><th>Est. Size</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Config-only</td>
+              <td class="text-muted small">~{{ backup_stats.config_size_mb }} MB</td>
+              <td>
+                <a href="{{ url_for('config.backup', scope='config') }}"
+                   class="btn btn-sm btn-outline-primary">
+                  <i class="bi bi-download me-1"></i>Download
+                </a>
+              </td>
+            </tr>
+            <tr>
+              <td>Full backup</td>
+              <td class="text-muted small">~{{ backup_stats.full_size_mb }} MB</td>
+              <td>
+                <a href="{{ url_for('config.backup', scope='full') }}"
+                   class="btn btn-sm btn-primary">
+                  <i class="bi bi-download me-1"></i>Download
+                </a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Row count summary -->
+        <details class="small text-muted">
+          <summary class="mb-1" style="cursor:pointer;">Show row counts</summary>
+          <ul class="list-unstyled ps-2 mt-1">
+            {% for table, count in backup_stats.counts.items() %}
+            <li><code>{{ table }}</code>: {{ "{:,}".format(count) }} rows</li>
+            {% endfor %}
+          </ul>
+        </details>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Restore -->
+    <div class="card">
+      <div class="card-header fw-semibold"><i class="bi bi-upload me-2"></i>Restore from Backup</div>
+      <div class="card-body">
+        <div class="alert alert-warning py-2 small mb-3">
+          <i class="bi bi-exclamation-triangle-fill me-1"></i>
+          <strong>Warning:</strong> Restoring will overwrite ALL existing data in the restored tables.
+          Download a fresh backup first.
+        </div>
+        <form method="POST" action="{{ url_for('config.restore') }}"
+              enctype="multipart/form-data"
+              onsubmit="return confirm('This will overwrite existing data with the backup contents.\n\nAre you sure you want to continue?')">
+          <div class="mb-3">
+            <label class="form-label">Backup zip file</label>
+            <input type="file" name="backup_file" class="form-control" accept=".zip" required>
+            <div class="form-text">Select a <code>.zip</code> file previously downloaded from this page.</div>
+          </div>
+          <button type="submit" class="btn btn-warning">
+            <i class="bi bi-upload me-1"></i>Upload &amp; Restore
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: Factory Reset -->
+  <div class="col-lg-6">
+    <div class="card border-danger">
+      <div class="card-header fw-semibold text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Factory Reset</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Permanently deletes selected data. This cannot be undone.
+          Check only the categories you want to wipe.
+        </p>
+        <form method="POST" action="{{ url_for('config.reset') }}"
+              id="resetForm"
+              onsubmit="return confirmReset(this)">
+
+          <div class="mb-3">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="categories" value="printers" id="reset_printers">
+              <label class="form-check-label fw-semibold" for="reset_printers">Printers &amp; monitoring history</label>
+              <div class="form-text ms-4">Removes all printers, toner history, alert history, and alert states.</div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="categories" value="locations" id="reset_locations">
+              <label class="form-check-label fw-semibold" for="reset_locations">Locations</label>
+              <div class="form-text ms-4">Removes all locations; printers are unassigned.</div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="categories" value="discovery" id="reset_discovery">
+              <label class="form-check-label fw-semibold" for="reset_discovery">Discovery history</label>
+              <div class="form-text ms-4">Clears all scan results and scan records.</div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="categories" value="imports" id="reset_imports">
+              <label class="form-check-label fw-semibold" for="reset_imports">Staged import data</label>
+              <div class="form-text ms-4">Removes spreadsheet import records.</div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="categories" value="audit" id="reset_audit">
+              <label class="form-check-label fw-semibold" for="reset_audit">Audit log</label>
+              <div class="form-text ms-4">Clears all activity log entries.</div>
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="categories" value="users" id="reset_users">
+              <label class="form-check-label fw-semibold text-danger" for="reset_users">Users</label>
+              <div class="form-text ms-4 text-danger">Removes all users and re-creates admin/admin. You will be logged out.</div>
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" name="categories" value="settings" id="reset_settings">
+              <label class="form-check-label fw-semibold" for="reset_settings">Settings</label>
+              <div class="form-text ms-4">Resets all site settings (SMTP, thresholds, etc.) to defaults.</div>
+            </div>
+          </div>
+
+          <hr>
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="confirmUnderstand" required>
+            <label class="form-check-label text-danger fw-semibold" for="confirmUnderstand">
+              I understand this is permanent and cannot be undone
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn-danger" id="resetBtn">
+            <i class="bi bi-exclamation-triangle me-1"></i>Execute Reset
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function confirmReset(form) {
+  var checked = Array.from(form.querySelectorAll('input[name="categories"]:checked'))
+                    .map(function(el) { return el.parentElement.querySelector('label').textContent.trim(); });
+  if (checked.length === 0) {
+    alert('No categories selected.');
+    return false;
+  }
+  return confirm('The following will be permanently deleted:\n\n• ' + checked.join('\n• ') + '\n\nThis cannot be undone. Continue?');
+}
+</script>
 
 {% endif %}
 
