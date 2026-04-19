@@ -53,12 +53,17 @@ def index():
     # Locations for filter dropdown
     locations = db.session.query(Location).order_by(Location.name).all()
     location_id = request.args.get("location", type=int)
+    status_filter = request.args.get("status")  # "online" | "offline" | None
 
     query = db.session.query(Printer).filter_by(is_active=True)
     if location_id == 0:
         query = query.filter(Printer.location_id.is_(None))
     elif location_id:
         query = query.filter_by(location_id=location_id)
+    if status_filter == "online":
+        query = query.filter_by(is_online=True)
+    elif status_filter == "offline":
+        query = query.filter_by(is_online=False)
     printers = query.order_by(Printer.display_name, Printer.ip_address).all()
 
     # Pre-fetch telemetry so initial render is fully populated (no flash)
@@ -73,6 +78,7 @@ def index():
         alerts_today=alerts_today,
         locations=locations,
         active_location_id=location_id,
+        active_status=status_filter,
     )
 
 

@@ -29,8 +29,15 @@ bp = Blueprint("api", __name__)
 def htmx_printer_cards():
     query = db.session.query(Printer).filter_by(is_active=True)
     location_id = request.args.get("location", type=int)
-    if location_id:
+    if location_id == 0:
+        query = query.filter(Printer.location_id.is_(None))
+    elif location_id:
         query = query.filter_by(location_id=location_id)
+    status_filter = request.args.get("status")
+    if status_filter == "online":
+        query = query.filter_by(is_online=True)
+    elif status_filter == "offline":
+        query = query.filter_by(is_online=False)
     printers = query.order_by(Printer.display_name, Printer.ip_address).all()
 
     printer_data = []

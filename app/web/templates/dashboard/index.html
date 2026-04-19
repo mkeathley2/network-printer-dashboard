@@ -14,20 +14,32 @@
     </div>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card text-center border-0 shadow-sm">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold text-success">{{ online }}</div>
-        <div class="small text-muted">Online</div>
+    <a href="{{ url_for('dashboard.index', status='online' if active_status != 'online' else None, location=active_location_id or None) }}"
+       class="text-decoration-none">
+      <div class="card text-center shadow-sm {% if active_status == 'online' %}border-success border-2{% else %}border-0{% endif %}"
+           style="cursor:pointer;">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold text-success">{{ online }}</div>
+          <div class="small {% if active_status == 'online' %}text-success fw-semibold{% else %}text-muted{% endif %}">
+            Online {% if active_status == 'online' %}<i class="bi bi-funnel-fill"></i>{% endif %}
+          </div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card text-center border-0 shadow-sm">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold text-danger">{{ offline }}</div>
-        <div class="small text-muted">Offline</div>
+    <a href="{{ url_for('dashboard.index', status='offline' if active_status != 'offline' else None, location=active_location_id or None) }}"
+       class="text-decoration-none">
+      <div class="card text-center shadow-sm {% if active_status == 'offline' %}border-danger border-2{% else %}border-0{% endif %}"
+           style="cursor:pointer;">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold text-danger">{{ offline }}</div>
+          <div class="small {% if active_status == 'offline' %}text-danger fw-semibold{% else %}text-muted{% endif %}">
+            Offline {% if active_status == 'offline' %}<i class="bi bi-funnel-fill"></i>{% endif %}
+          </div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
     <div class="card text-center border-0 shadow-sm">
@@ -105,7 +117,7 @@
 
     {% if printer_data %}
       <div id="printer-grid"
-           hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_location_id %}?location={{ active_location_id }}{% endif %}"
+           hx-get="{{ url_for('api.htmx_printer_cards') }}{% if active_location_id %}?location={{ active_location_id }}{% endif %}{% if active_status %}&status={{ active_status }}{% endif %}"
            hx-trigger="every 5m"
            hx-swap="innerHTML">
         {% include "dashboard/_printer_card.html" with context %}
