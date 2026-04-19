@@ -5,6 +5,8 @@ Called by APScheduler every N minutes.
 from __future__ import annotations
 
 import logging
+import socket
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
@@ -46,6 +48,20 @@ except ImportError:
     pass
 
 
+def _http_reachable(ip: str, timeout: int = 3) -> bool:
+    """
+    Check if TCP port 80 on the printer is accepting connections.
+    Kyocera (and most MFPs) keep their HTTP server active even in deep sleep,
+    so a successful TCP connect means the printer is on the network — it may
+    just need a moment to wake its SNMP agent.
+    """
+    try:
+        with socket.create_connection((ip, 80), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 def _build_snmp_params(printer: Printer) -> dict:
     return {
         "version": printer.snmp_version,
@@ -83,6 +99,26 @@ def _probe_printer(printer: Printer) -> PrinterData:
             data = data_v1
             printer.snmp_version = "1"
             logger.info("Printer %s responded to SNMPv1; saved version.", printer.ip_address)
+
+    # --- HTTP wake + SNMP retry ---
+    # If SNMP failed but port 80 responds, the printer is likely in deep sleep
+    # (common on Kyocera MFPs). Opening a TCP connection to port 80 wakes the
+    # printer's main CPU; we then wait 10 seconds and retry SNMP once.
+    if not data.is_online and _http_reachable(printer.ip_address):
+        logger.info(
+            "Printer %s: SNMP failed but port 80 is open — waking and retrying SNMP in 10s",
+            printer.ip_address,
+        )
+        time.sleep(10)
+        data_retry = generic_probe.probe(
+            printer.ip_address,
+            snmp_params,
+            timeout=config.snmp.timeout,
+            retries=config.snmp.retries,
+        )
+        if data_retry.is_online:
+            logger.info("Printer %s: SNMP succeeded after wake.", printer.ip_address)
+            data = data_retry
 
     # Apply vendor enrichment
     if data.is_online and data.vendor in _VENDOR_ENRICH:
