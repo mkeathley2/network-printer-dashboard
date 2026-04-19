@@ -6,12 +6,14 @@
 <!-- Summary stat cards -->
 <div class="row g-3 mb-3">
   <div class="col-6 col-md-3">
-    <div class="card text-center border-0 shadow-sm">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold text-primary">{{ total }}</div>
-        <div class="small text-muted">Total Printers</div>
+    <a href="{{ url_for('dashboard.index') }}" class="text-decoration-none">
+      <div class="card text-center border-0 shadow-sm" style="cursor:pointer;">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold text-primary">{{ total }}</div>
+          <div class="small text-muted">Total Printers</div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
   <div class="col-6 col-md-3">
     <a href="{{ url_for('dashboard.index', status='online' if active_status != 'online' else None, location=active_location_id or None) }}"
@@ -42,12 +44,14 @@
     </a>
   </div>
   <div class="col-6 col-md-3">
-    <div class="card text-center border-0 shadow-sm">
-      <div class="card-body py-3">
-        <div class="fs-2 fw-bold text-warning">{{ alerts_today }}</div>
-        <div class="small text-muted">Alerts Today</div>
+    <a href="{{ url_for('alerts.log') }}" class="text-decoration-none">
+      <div class="card text-center border-0 shadow-sm" style="cursor:pointer;">
+        <div class="card-body py-3">
+          <div class="fs-2 fw-bold text-warning">{{ alerts_today }}</div>
+          <div class="small text-muted">Alerts Today</div>
+        </div>
       </div>
-    </div>
+    </a>
   </div>
 </div>
 
