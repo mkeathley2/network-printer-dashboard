@@ -4,6 +4,10 @@ FROM python:3.12-slim
 # so "from app.core..." imports resolve correctly
 WORKDIR /project
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

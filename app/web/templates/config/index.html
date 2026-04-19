@@ -57,6 +57,12 @@
       {% if removed_count %}<span class="badge bg-secondary ms-1">{{ removed_count }}</span>{% endif %}
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'updates' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='updates') }}">
+      <i class="bi bi-cloud-download me-1"></i>Updates
+    </a>
+  </li>
 </ul>
 
 <!-- ===================== SMTP TAB ===================== -->
@@ -645,6 +651,75 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- ===================== UPDATES TAB ===================== -->
+{% elif active_tab == 'updates' %}
+<div class="card" style="max-width:640px;">
+  <div class="card-header fw-semibold"><i class="bi bi-cloud-download me-2"></i>Software Updates</div>
+  <div class="card-body">
+
+    <!-- Version comparison -->
+    <div class="d-flex gap-4 mb-3">
+      <div>
+        <div class="text-muted small mb-1">Installed Version</div>
+        <span class="badge bg-secondary fs-6 font-monospace">{{ current_version }}</span>
+      </div>
+      <div>
+        <div class="text-muted small mb-1">Latest Release</div>
+        {% if latest_release %}
+          <a href="{{ latest_release.html_url }}" target="_blank" class="text-decoration-none">
+            <span class="badge {% if has_update %}bg-success{% else %}bg-secondary{% endif %} fs-6 font-monospace">
+              {{ latest_release.tag_name }}
+            </span>
+          </a>
+        {% else %}
+          <span class="text-muted fst-italic">No official releases yet</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Status banner -->
+    {% if has_update %}
+    <div class="alert alert-success py-2 mb-3">
+      <i class="bi bi-arrow-up-circle me-1"></i>
+      <strong>{{ latest_release.tag_name }}</strong> is available —
+      published {{ latest_release.published_at[:10] }}
+    </div>
+    {% elif latest_release %}
+    <div class="alert alert-secondary py-2 mb-3">
+      <i class="bi bi-check-circle me-1"></i>You are running the latest release.
+    </div>
+    {% endif %}
+
+    <!-- Release notes -->
+    {% if latest_release and latest_release.get('body') %}
+    <div class="mb-3">
+      <div class="text-muted small mb-1">Release Notes</div>
+      <div class="border rounded p-2 bg-light"
+           style="white-space:pre-wrap; font-size:0.83rem; max-height:220px; overflow-y:auto; font-family:monospace;">{{ latest_release.body }}</div>
+    </div>
+    {% endif %}
+
+    <!-- Action -->
+    {% if has_update %}
+    <form method="POST" action="{{ url_for('config.apply_update') }}"
+          onsubmit="return confirm('The app will rebuild and restart. You will need to refresh the page in ~60 seconds.\n\nContinue?')">
+      <button type="submit" class="btn btn-success">
+        <i class="bi bi-arrow-up-circle me-1"></i>Update to {{ latest_release.tag_name }}
+      </button>
+    </form>
+    {% elif not latest_release %}
+    <p class="text-muted small mb-0">
+      No GitHub Releases have been published yet.
+      Use <code>update.sh</code> on the server to apply development updates.<br>
+      When a release is ready, create one on
+      <a href="https://github.com/mkeathley2/network-printer-dashboard/releases/new" target="_blank">GitHub Releases</a>
+      and the Update button will appear here automatically.
+    </p>
+    {% endif %}
+
   </div>
 </div>
 

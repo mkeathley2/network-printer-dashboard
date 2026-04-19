@@ -3,8 +3,14 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
+import os
+import subprocess
+import threading
 
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+
+logger = logging.getLogger(__name__)
 from flask_login import current_user
 from werkzeug.security import generate_password_hash
 
@@ -133,6 +139,16 @@ def index():
 
     alert_settings = {key: _get_setting(key, "1") for key, _ in ALERT_TOGGLE_DEFS}
 
+    # Updates tab
+    current_version = "unknown"
+    latest_release = None
+    has_update = False
+    if tab == "updates":
+        from app.utils.version import get_current_version, get_latest_release, update_available
+        current_version = get_current_version()
+        latest_release = get_latest_release()
+        has_update = update_available()
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -154,6 +170,9 @@ def index():
         removed_printers=removed_printers,
         alert_settings=alert_settings,
         alert_toggle_defs=ALERT_TOGGLE_DEFS,
+        current_version=current_version,
+        latest_release=latest_release,
+        has_update=has_update,
     )
 
 
@@ -469,3 +488,66 @@ def export_activity_log():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=activity_log.csv"},
     )
+
+
+# ---------------------------------------------------------------------------
+# In-app update
+# ---------------------------------------------------------------------------
+@bp.route("/apply-update", methods=["POST"])
+@admin_required
+def apply_update():
+    """
+    Trigger a git pull + docker compose up --build -d in a background thread.
+    Requires /var/run/docker.sock and /project/repo to be mounted in the container.
+    The container will stop and restart; the browser is redirected to a progress page.
+    """
+    if not os.path.exists("/var/run/docker.sock"):
+        flash(
+            "Docker socket is not mounted. Add the volumes below to docker-compose.yml "
+            "and recreate the container before using in-app updates.",
+            "danger",
+        )
+        return redirect(url_for("config.index", tab="updates"))
+
+    if not os.path.isdir("/project/repo/.git"):
+        flash(
+            "Project directory is not mounted at /project/repo. "
+            "Add '.:/project/repo' to docker-compose.yml volumes.",
+            "danger",
+        )
+        return redirect(url_for("config.index", tab="updates"))
+
+    def _do_update() -> None:
+        import time
+        try:
+            logger.info("Update started: running git pull…")
+            subprocess.run(
+                ["git", "-C", "/project/repo", "pull", "--ff-only", "origin", "master"],
+                timeout=60,
+                check=True,
+                capture_output=True,
+            )
+            logger.info("git pull complete; rebuilding container…")
+            time.sleep(1)
+            subprocess.run(
+                ["docker", "compose", "-f", "/project/repo/docker-compose.yml",
+                 "up", "--build", "-d"],
+                timeout=300,
+                check=True,
+                capture_output=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            logger.error("Update failed: %s\n%s", exc, exc.stderr)
+        except Exception as exc:
+            logger.error("Update failed unexpectedly: %s", exc)
+
+    audit(current_user.username, "app_update", "system", "Triggered in-app update")
+    threading.Thread(target=_do_update, daemon=True).start()
+    return redirect(url_for("config.update_progress"))
+
+
+@bp.route("/update-progress")
+@admin_required
+def update_progress():
+    """Shown while the container is rebuilding. JS polls /health and redirects when back."""
+    return render_template("config/update_progress.html")
