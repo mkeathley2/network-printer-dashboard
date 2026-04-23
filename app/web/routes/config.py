@@ -684,7 +684,6 @@ def add_agent():
     from flask import session as flask_session
 
     name = request.form.get("name", "").strip()
-    location_id = request.form.get("location_id") or None
     subnet = request.form.get("subnet", "").strip()
     try:
         scan_interval = max(1, int(request.form.get("scan_interval_minutes", 60)))
@@ -702,7 +701,15 @@ def add_agent():
     plaintext_key = secrets.token_urlsafe(32)
     key_hash = hashlib.sha256(plaintext_key.encode()).hexdigest()
 
-    loc_id = int(location_id) if location_id else None
+    # Auto-create a Location with the same name as the agent
+    loc = db.session.query(Location).filter(Location.name.ilike(name)).first()
+    if not loc:
+        loc = Location(name=name)
+        db.session.add(loc)
+        db.session.flush()
+    loc_id = loc.id
+    loc_name = loc.name
+
     agent = RemoteAgent(
         name=name,
         location_id=loc_id,
@@ -716,11 +723,6 @@ def add_agent():
 
     # Build install commands with pre-filled values
     public_url = _get_setting("public_url", "https://your-dashboard-url.com")
-    loc_name = ""
-    if loc_id:
-        loc = db.session.get(Location, loc_id)
-        if loc:
-            loc_name = loc.name
 
     subnet_hint = subnet or "192.168.1.0/24"
 

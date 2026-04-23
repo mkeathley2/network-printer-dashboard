@@ -959,16 +959,6 @@ function confirmReset(form) {
 </div>
 {% endif %}
 
-{# Warning banner for agents with no location #}
-{% set no_loc_agents = agents | selectattr('location_id', 'none') | list %}
-{% if no_loc_agents %}
-<div class="alert alert-warning py-2">
-  <i class="bi bi-exclamation-triangle me-1"></i>
-  {{ no_loc_agents | length }} agent(s) have no location assigned:
-  {% for a in no_loc_agents %}<strong>{{ a.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
-  Assign a location below so printers can be grouped correctly.
-</div>
-{% endif %}
 
 <div class="row g-3">
   <!-- ---- Left: agents table + public URL ---- -->
@@ -986,8 +976,8 @@ function confirmReset(form) {
       </div>
       <div class="card-body">
         <p class="text-muted small mb-2">
-          The public HTTPS URL of this dashboard (via Cloudflare Tunnel or similar).
-          Used to pre-fill agent install commands. Example: <code>https://printers.yourcompany.com</code>
+          The public HTTPS URL of this dashboard (via Tailscale Funnel or similar).
+          Used to pre-fill agent install commands. Example: <code>https://yourvm.taild0c836.ts.net</code>
         </p>
         <form method="POST" action="{{ url_for('config.save_public_url') }}" class="d-flex gap-2">
           <input type="url" name="public_url" class="form-control form-control-sm"
@@ -1168,54 +1158,50 @@ function confirmReset(form) {
       {% endif %}
     </div>
 
-    <!-- Cloudflare Tunnel Setup Guide (collapsible) -->
+    <!-- Tailscale Funnel Setup Guide (collapsible) -->
     <div class="card mt-3">
       <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
-        <span><i class="bi bi-cloud me-1"></i>Cloudflare Tunnel Setup Guide</span>
-        <button class="btn btn-sm btn-link py-0" data-bs-toggle="collapse" data-bs-target="#cfGuide">
+        <span><i class="bi bi-cloud me-1"></i>Tailscale Funnel Setup Guide</span>
+        <button class="btn btn-sm btn-link py-0" data-bs-toggle="collapse" data-bs-target="#tsGuide">
           Show / Hide
         </button>
       </div>
-      <div class="collapse" id="cfGuide">
+      <div class="collapse" id="tsGuide">
         <div class="card-body small">
           <p class="text-muted mb-2">
-            Cloudflare Tunnel exposes this dashboard to the internet so remote agents can POST to it —
-            <strong>no VPN needed, free forever</strong>.
+            Tailscale Funnel exposes this dashboard to the internet so remote agents can POST to it —
+            <strong>no VPN, no domain, free forever</strong>.
             Install it <em>once</em> on this server; agents are just HTTP clients.
           </p>
           <ol class="mb-3">
-            <li>Create a free account at <a href="https://dash.cloudflare.com/sign-up" target="_blank">dash.cloudflare.com</a> and add your domain.</li>
-            <li>SSH into this server and install <code>cloudflared</code>:
-<pre class="bg-light p-2 rounded mt-1 mb-1">curl -L -o cloudflared.deb \
-  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared.deb</pre>
+            <li>Create a free account at <a href="https://tailscale.com/" target="_blank">tailscale.com</a> (no credit card required). Choose the <strong>Personal</strong> plan.</li>
+            <li>SSH into this server and install Tailscale:
+<pre class="bg-light p-2 rounded mt-1 mb-1">curl -fsSL https://tailscale.com/install.sh | sh</pre>
             </li>
-            <li>Authenticate once:
-<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel login</pre>
+            <li>Log this server into your tailnet:
+<pre class="bg-light p-2 rounded mt-1 mb-1">sudo tailscale up</pre>
+              Copy the printed URL, open it in any browser, and click <strong>Connect</strong>.
             </li>
-            <li>Create the tunnel:
-<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel create printer-dashboard</pre>
+            <li>Enable HTTPS in the Tailscale admin console:
+              Go to <a href="https://login.tailscale.com/admin/dns" target="_blank">login.tailscale.com/admin/dns</a>
+              → <strong>HTTPS Certificates</strong> → <strong>Enable HTTPS</strong>.
             </li>
-            <li>Create <code>/etc/cloudflared/config.yml</code>:
-<pre class="bg-light p-2 rounded mt-1 mb-1">tunnel: &lt;TUNNEL-ID&gt;
-credentials-file: /root/.cloudflared/&lt;TUNNEL-ID&gt;.json
-
-ingress:
-  - hostname: printers.yourcompany.com
-    service: http://localhost:7070
-  - service: http_status:404</pre>
+            <li>Allow Funnel in your ACL policy:
+              Go to <a href="https://login.tailscale.com/admin/acls" target="_blank">login.tailscale.com/admin/acls</a>
+              and add this block inside the top-level object, then click <strong>Save</strong>:
+<pre class="bg-light p-2 rounded mt-1 mb-1">"nodeAttrs": [
+    {"target": ["*"], "attr": ["funnel"]},
+],</pre>
             </li>
-            <li>Route the DNS and start the service:
-<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel route dns printer-dashboard printers.yourcompany.com
-sudo cloudflared service install
-sudo systemctl enable --now cloudflared</pre>
+            <li>Expose the dashboard port (survives reboots):
+<pre class="bg-light p-2 rounded mt-1 mb-1">sudo tailscale funnel --bg 7070</pre>
+              Tailscale will print your permanent public URL, e.g. <code>https://yourvm.taild0c836.ts.net</code>.
             </li>
-            <li>Enter the resulting URL in the <strong>Public Dashboard URL</strong> field above and save.</li>
+            <li>Paste that URL into the <strong>Public Dashboard URL</strong> field above and save.</li>
           </ol>
           <p class="text-muted mb-0">
-            <strong>Multiple admins:</strong> Cloudflare Zero Trust (free, up to 50 members) →
-            <a href="https://one.dash.cloudflare.com" target="_blank">one.dash.cloudflare.com</a>
-            → Settings → Members → Invite by email.
+            <strong>Verify after reboot:</strong> run <code>tailscale funnel status</code> — the funnel should still be active.
+            If not, re-run <code>sudo tailscale funnel --bg 7070</code> once more.
           </p>
         </div>
       </div>
@@ -1232,16 +1218,7 @@ sudo systemctl enable --now cloudflared</pre>
             <label class="form-label">Agent Name <span class="text-danger">*</span></label>
             <input type="text" name="name" class="form-control form-control-sm"
                    placeholder="Station 12 – Main St" required>
-            <div class="form-text">A unique name for this site/agent.</div>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Location</label>
-            <select name="location_id" class="form-select form-select-sm">
-              <option value="">— None (assign later) —</option>
-              {% for loc in locations %}
-              <option value="{{ loc.id }}">{{ loc.name }}</option>
-              {% endfor %}
-            </select>
+            <div class="form-text">A unique name for this site/agent. A matching Location will be created automatically.</div>
           </div>
           <div class="mb-3">
             <label class="form-label">Subnet</label>
@@ -1265,8 +1242,9 @@ sudo systemctl enable --now cloudflared</pre>
       <div class="card-header fw-semibold small">Quick Reference</div>
       <div class="card-body small text-muted">
         <ol class="ps-3 mb-0">
-          <li>Add an agent above → copy the API key shown.</li>
-          <li>Set up Cloudflare Tunnel on this server (see guide).</li>
+          <li>Set up Tailscale Funnel on this server (see guide above) and save the public URL.</li>
+          <li>Add an agent above — a Location is created automatically from the agent name.</li>
+          <li>Copy the API key shown after creation.</li>
           <li>On Windows: paste the <strong>Windows RMM one-liner</strong> into your RMM.</li>
           <li>On Raspberry Pi: SSH in, paste the <strong>Pi one-liner</strong>.</li>
           <li>The agent scans its subnet, posts to this dashboard, and appears in the table.</li>
