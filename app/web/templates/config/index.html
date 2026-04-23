@@ -69,6 +69,17 @@
       <i class="bi bi-database me-1"></i>Backup &amp; Reset
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'agents' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='agents') }}">
+      <i class="bi bi-hdd-network me-1"></i>Remote Agents
+      {% if agents | selectattr('status', 'equalto', 'stale') | list %}
+        <span class="badge bg-danger ms-1">{{ agents | selectattr('status', 'equalto', 'stale') | list | length }}</span>
+      {% elif agents %}
+        <span class="badge bg-secondary ms-1">{{ agents | length }}</span>
+      {% endif %}
+    </a>
+  </li>
 </ul>
 
 <!-- ===================== SMTP TAB ===================== -->
@@ -891,6 +902,380 @@ function confirmReset(form) {
   return confirm('The following will be permanently deleted:\n\n• ' + checked.join('\n• ') + '\n\nThis cannot be undone. Continue?');
 }
 </script>
+
+{% endif %}
+
+<!-- ===================== REMOTE AGENTS TAB ===================== -->
+{% if active_tab == 'agents' %}
+
+{# One-time key display after adding or regenerating #}
+{% if new_agent_info %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+  <h5 class="alert-heading">
+    <i class="bi bi-key me-2"></i>
+    {% if new_agent_info.regen %}API Key Regenerated — {{ new_agent_info.agent_name }}{% else %}Agent Created — {{ new_agent_info.agent_name }}{% endif %}
+  </h5>
+  <p class="mb-2">
+    <strong>This key is shown only once.</strong> Copy it now — you won't be able to retrieve it again.
+  </p>
+  <div class="mb-3">
+    <label class="form-label small fw-semibold">API Key</label>
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control font-monospace" id="newAgentKey"
+             value="{{ new_agent_info.plaintext_key }}" readonly>
+      <button class="btn btn-outline-secondary" type="button"
+              onclick="navigator.clipboard.writeText(document.getElementById('newAgentKey').value);this.textContent='Copied!'">
+        Copy
+      </button>
+    </div>
+  </div>
+
+  <div class="mb-2">
+    <label class="form-label small fw-semibold"><i class="bi bi-windows me-1"></i>Windows RMM One-Liner</label>
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control font-monospace small" id="winCmd"
+             value="{{ new_agent_info.windows_cmd }}" readonly>
+      <button class="btn btn-outline-secondary" type="button"
+              onclick="navigator.clipboard.writeText(document.getElementById('winCmd').value);this.textContent='Copied!'">
+        Copy
+      </button>
+    </div>
+    <div class="form-text">Paste this into your RMM as a PowerShell script. Set URL, KEY, SUBNET, LOCATION as RMM variables.</div>
+  </div>
+
+  <div class="mb-1">
+    <label class="form-label small fw-semibold"><i class="bi bi-cpu me-1"></i>Raspberry Pi One-Liner</label>
+    <div class="input-group input-group-sm">
+      <input type="text" class="form-control font-monospace small" id="piCmd"
+             value="{{ new_agent_info.pi_cmd }}" readonly>
+      <button class="btn btn-outline-secondary" type="button"
+              onclick="navigator.clipboard.writeText(document.getElementById('piCmd').value);this.textContent='Copied!'">
+        Copy
+      </button>
+    </div>
+    <div class="form-text">SSH into the Pi at the station, paste this one-liner, and follow the prompts.</div>
+  </div>
+  <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
+{# Warning banner for agents with no location #}
+{% set no_loc_agents = agents | selectattr('location_id', 'none') | list %}
+{% if no_loc_agents %}
+<div class="alert alert-warning py-2">
+  <i class="bi bi-exclamation-triangle me-1"></i>
+  {{ no_loc_agents | length }} agent(s) have no location assigned:
+  {% for a in no_loc_agents %}<strong>{{ a.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.
+  Assign a location below so printers can be grouped correctly.
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <!-- ---- Left: agents table + public URL ---- -->
+  <div class="col-lg-8">
+
+    <!-- Public URL setting -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        Public Dashboard URL
+        {% if public_url %}
+          <span class="badge bg-success">Configured</span>
+        {% else %}
+          <span class="badge bg-warning text-dark">Not set</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          The public HTTPS URL of this dashboard (via Cloudflare Tunnel or similar).
+          Used to pre-fill agent install commands. Example: <code>https://printers.yourcompany.com</code>
+        </p>
+        <form method="POST" action="{{ url_for('config.save_public_url') }}" class="d-flex gap-2">
+          <input type="url" name="public_url" class="form-control form-control-sm"
+                 value="{{ public_url }}" placeholder="https://printers.yourcompany.com" style="max-width:380px;">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Agents table -->
+    <div class="card">
+      <div class="card-header fw-semibold">Registered Agents</div>
+      {% if agents %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Name</th>
+              <th>Location</th>
+              <th>Status</th>
+              <th>Last Check-In</th>
+              <th>Version</th>
+              <th>Subnet</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for agent in agents %}
+            <tr>
+              <td class="fw-semibold">
+                {{ agent.name }}
+                {% if agent.parsed_errors %}
+                  <span class="badge bg-warning text-dark ms-1" title="{{ agent.parsed_errors | length }} scan error(s) on last run">
+                    {{ agent.parsed_errors | length }} err
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                {% if agent.location %}
+                  {{ agent.location.name }}
+                {% else %}
+                  <span class="badge bg-warning text-dark">No location</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if agent.status == 'active' %}
+                  <span class="badge bg-success">Active</span>
+                {% elif agent.status == 'stale' %}
+                  <span class="badge bg-danger">Stale</span>
+                {% elif agent.status == 'inactive' %}
+                  <span class="badge bg-secondary">Inactive</span>
+                {% else %}
+                  <span class="badge bg-warning text-dark">{{ agent.status }}</span>
+                {% endif %}
+              </td>
+              <td class="text-muted small">
+                {{ agent.last_checkin_at | localtime if agent.last_checkin_at else 'Never' }}
+              </td>
+              <td class="text-muted small">{{ agent.agent_version or '—' }}</td>
+              <td class="text-muted small">{{ agent.subnet or '—' }}</td>
+              <td>
+                <div class="d-flex flex-wrap gap-1">
+                  <!-- Rescan Now -->
+                  <form method="POST" action="{{ url_for('config.agent_command', agent_id=agent.id) }}">
+                    <input type="hidden" name="command" value="rescan">
+                    <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-1"
+                            title="Rescan Now">
+                      <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                  </form>
+                  <!-- Force Update -->
+                  <form method="POST" action="{{ url_for('config.agent_command', agent_id=agent.id) }}">
+                    <input type="hidden" name="command" value="update">
+                    <button type="submit" class="btn btn-sm btn-outline-info py-0 px-1"
+                            title="Force Update">
+                      <i class="bi bi-cloud-download"></i>
+                    </button>
+                  </form>
+                  <!-- Edit Interval button → collapse -->
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1"
+                          data-bs-toggle="collapse"
+                          data-bs-target="#interval-{{ agent.id }}"
+                          title="Edit Scan Interval">
+                    <i class="bi bi-clock"></i>
+                  </button>
+                  <!-- Set Location button → collapse -->
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1"
+                          data-bs-toggle="collapse"
+                          data-bs-target="#setloc-{{ agent.id }}"
+                          title="Assign Location">
+                    <i class="bi bi-geo-alt"></i>
+                  </button>
+                  <!-- Regenerate Key -->
+                  <form method="POST"
+                        action="{{ url_for('config.agent_regenerate_key', agent_id=agent.id) }}"
+                        onsubmit="return confirm('Regenerate API key for {{ agent.name }}? The agent will stop working until reinstalled with the new key.')">
+                    <button type="submit" class="btn btn-sm btn-outline-warning py-0 px-1"
+                            title="Regenerate API Key">
+                      <i class="bi bi-key"></i>
+                    </button>
+                  </form>
+                  <!-- Delete -->
+                  {% if agent.status == 'stale' %}
+                  <form method="POST"
+                        action="{{ url_for('config.delete_agent', agent_id=agent.id) }}"
+                        onsubmit="return confirm('Force-delete {{ agent.name }}? Agent is offline — its printers will be deactivated.')">
+                    <input type="hidden" name="force" value="1">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                            title="Force Delete (agent offline)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% else %}
+                  <form method="POST"
+                        action="{{ url_for('config.delete_agent', agent_id=agent.id) }}"
+                        onsubmit="return confirm('Send uninstall command to {{ agent.name }}? The agent will remove itself on next check-in.')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                            title="Delete Agent">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% endif %}
+                </div>
+                <!-- Inline interval editor -->
+                <div class="collapse mt-1" id="interval-{{ agent.id }}">
+                  <form method="POST" action="{{ url_for('config.agent_set_interval', agent_id=agent.id) }}"
+                        class="d-flex gap-1 align-items-center">
+                    <input type="number" name="scan_interval_minutes" class="form-control form-control-sm"
+                           value="{{ agent.scan_interval_minutes }}" min="1" max="1440" style="width:80px;">
+                    <span class="small text-muted">min</span>
+                    <button type="submit" class="btn btn-sm btn-primary py-0">Save</button>
+                  </form>
+                </div>
+                <!-- Inline location setter -->
+                <div class="collapse mt-1" id="setloc-{{ agent.id }}">
+                  <form method="POST" action="{{ url_for('config.agent_set_location', agent_id=agent.id) }}"
+                        class="d-flex gap-1 align-items-center">
+                    <select name="location_id" class="form-select form-select-sm" style="min-width:160px;">
+                      <option value="">— No location —</option>
+                      {% for loc in locations %}
+                      <option value="{{ loc.id }}" {% if agent.location_id == loc.id %}selected{% endif %}>
+                        {{ loc.name }}
+                      </option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary py-0">Save</button>
+                  </form>
+                </div>
+                <!-- Scan errors (if any) -->
+                {% if agent.parsed_errors %}
+                <div class="mt-1">
+                  <button class="btn btn-sm btn-link py-0 text-warning" style="font-size:0.75rem;"
+                          data-bs-toggle="collapse" data-bs-target="#errors-{{ agent.id }}">
+                    View {{ agent.parsed_errors | length }} scan error(s)
+                  </button>
+                  <div class="collapse" id="errors-{{ agent.id }}">
+                    <ul class="list-unstyled mb-0 mt-1" style="font-size:0.75rem;">
+                      {% for err in agent.parsed_errors %}
+                        <li class="text-danger">
+                          <code>{{ err.ip if err.ip is defined else '?' }}</code>:
+                          {{ err.error if err.error is defined else err }}
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  </div>
+                </div>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted">
+        No agents registered yet. Add your first agent using the form on the right.
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Cloudflare Tunnel Setup Guide (collapsible) -->
+    <div class="card mt-3">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-cloud me-1"></i>Cloudflare Tunnel Setup Guide</span>
+        <button class="btn btn-sm btn-link py-0" data-bs-toggle="collapse" data-bs-target="#cfGuide">
+          Show / Hide
+        </button>
+      </div>
+      <div class="collapse" id="cfGuide">
+        <div class="card-body small">
+          <p class="text-muted mb-2">
+            Cloudflare Tunnel exposes this dashboard to the internet so remote agents can POST to it —
+            <strong>no VPN needed, free forever</strong>.
+            Install it <em>once</em> on this server; agents are just HTTP clients.
+          </p>
+          <ol class="mb-3">
+            <li>Create a free account at <a href="https://dash.cloudflare.com/sign-up" target="_blank">dash.cloudflare.com</a> and add your domain.</li>
+            <li>SSH into this server and install <code>cloudflared</code>:
+<pre class="bg-light p-2 rounded mt-1 mb-1">curl -L -o cloudflared.deb \
+  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i cloudflared.deb</pre>
+            </li>
+            <li>Authenticate once:
+<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel login</pre>
+            </li>
+            <li>Create the tunnel:
+<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel create printer-dashboard</pre>
+            </li>
+            <li>Create <code>/etc/cloudflared/config.yml</code>:
+<pre class="bg-light p-2 rounded mt-1 mb-1">tunnel: &lt;TUNNEL-ID&gt;
+credentials-file: /root/.cloudflared/&lt;TUNNEL-ID&gt;.json
+
+ingress:
+  - hostname: printers.yourcompany.com
+    service: http://localhost:7070
+  - service: http_status:404</pre>
+            </li>
+            <li>Route the DNS and start the service:
+<pre class="bg-light p-2 rounded mt-1 mb-1">cloudflared tunnel route dns printer-dashboard printers.yourcompany.com
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared</pre>
+            </li>
+            <li>Enter the resulting URL in the <strong>Public Dashboard URL</strong> field above and save.</li>
+          </ol>
+          <p class="text-muted mb-0">
+            <strong>Multiple admins:</strong> Cloudflare Zero Trust (free, up to 50 members) →
+            <a href="https://one.dash.cloudflare.com" target="_blank">one.dash.cloudflare.com</a>
+            → Settings → Members → Invite by email.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ---- Right: Add Agent form ---- -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header fw-semibold"><i class="bi bi-plus-circle me-1"></i>Add Remote Agent</div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('config.add_agent') }}">
+          <div class="mb-3">
+            <label class="form-label">Agent Name <span class="text-danger">*</span></label>
+            <input type="text" name="name" class="form-control form-control-sm"
+                   placeholder="Station 12 – Main St" required>
+            <div class="form-text">A unique name for this site/agent.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Location</label>
+            <select name="location_id" class="form-select form-select-sm">
+              <option value="">— None (assign later) —</option>
+              {% for loc in locations %}
+              <option value="{{ loc.id }}">{{ loc.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Subnet</label>
+            <input type="text" name="subnet" class="form-control form-control-sm"
+                   placeholder="192.168.10.0/24">
+            <div class="form-text">CIDR range this agent should scan. Can be changed later.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Scan Interval (minutes)</label>
+            <input type="number" name="scan_interval_minutes" class="form-control form-control-sm"
+                   value="60" min="1" max="1440">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-plus-circle me-1"></i>Create Agent &amp; Get API Key
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-header fw-semibold small">Quick Reference</div>
+      <div class="card-body small text-muted">
+        <ol class="ps-3 mb-0">
+          <li>Add an agent above → copy the API key shown.</li>
+          <li>Set up Cloudflare Tunnel on this server (see guide).</li>
+          <li>On Windows: paste the <strong>Windows RMM one-liner</strong> into your RMM.</li>
+          <li>On Raspberry Pi: SSH in, paste the <strong>Pi one-liner</strong>.</li>
+          <li>The agent scans its subnet, posts to this dashboard, and appears in the table.</li>
+          <li>Printers will show a <span class="badge bg-info">Remote</span> badge on the dashboard.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% endif %}
 

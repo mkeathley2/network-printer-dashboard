@@ -33,11 +33,18 @@
       <i class="bi bi-graph-up me-1"></i>History
     </a>
     {% if current_user.is_admin %}
+    {% if printer.agent_id %}
+      <button class="btn btn-sm btn-outline-primary" disabled
+              title="Managed by {{ printer.agent.name if printer.agent else 'Remote Agent' }} — use &#39;Rescan Now&#39; in Config → Remote Agents">
+        <i class="bi bi-arrow-clockwise me-1"></i>Poll Now
+      </button>
+    {% else %}
     <form method="POST" action="{{ url_for('printers.poll_now', printer_id=printer.id) }}">
       <button class="btn btn-sm btn-outline-primary" title="Poll now">
         <i class="bi bi-arrow-clockwise me-1"></i>Poll Now
       </button>
     </form>
+    {% endif %}
     <form method="POST" action="{{ url_for('printers.resend_alerts', printer_id=printer.id) }}"
           onsubmit="return confirm('Reset alert state and resend any active alerts for this printer?')">
       <button class="btn btn-sm btn-outline-warning" title="Resend alert emails">
@@ -71,6 +78,10 @@
           <tr><th class="text-muted">Vendor</th><td>{{ printer.vendor | upper }}</td></tr>
           <tr><th class="text-muted">SNMP Ver.</th><td>v{{ printer.snmp_version }}</td></tr>
           <tr><th class="text-muted">Community</th><td><code>{{ printer.snmp_community }}</code></td></tr>
+          {% if printer.agent_id and printer.agent %}
+          <tr><th class="text-muted">Agent</th>
+              <td><span class="badge bg-info me-1">Remote</span>{{ printer.agent.name }}</td></tr>
+          {% endif %}
           <tr><th class="text-muted">Added</th><td>{{ printer.added_at | localtime('%Y-%m-%d') }}</td></tr>
           <tr><th class="text-muted">Last Seen</th>
               <td>{{ printer.last_seen_at | localtime if printer.last_seen_at else 'Never' }}</td></tr>

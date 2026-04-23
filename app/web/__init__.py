@@ -56,6 +56,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     from app.web.routes.alerts import bp as alerts_bp
     from app.web.routes.api import bp as api_bp
     from app.web.routes.config import bp as config_bp
+    from app.web.routes.agent_api import bp as agent_api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -65,6 +66,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     app.register_blueprint(alerts_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(config_bp)
+    app.register_blueprint(agent_api_bp)
 
     # Register error handlers
     from app.web.routes.auth import register_error_handlers
@@ -126,6 +128,14 @@ def _run_migrations() -> None:
         "ALTER TABLE printers ADD COLUMN phone_ext VARCHAR(32) NULL",
         "ALTER TABLE printers ADD COLUMN printer_web_username VARCHAR(255) NULL",
         "ALTER TABLE printers ADD COLUMN printer_web_password VARCHAR(512) NULL",
+        # --- Remote Agent feature (v0.0.6) ---
+        # Step 1: add new columns first (needed before composite unique index)
+        "ALTER TABLE printers ADD COLUMN agent_id BIGINT NULL",
+        "ALTER TABLE printers ADD COLUMN consecutive_misses SMALLINT NOT NULL DEFAULT 0",
+        # Step 2: drop the old single-column unique index on ip_address (may already be gone)
+        "ALTER TABLE printers DROP INDEX ip_address",
+        # Step 3: composite unique so multiple agents can share IP schemes without collision
+        "ALTER TABLE printers ADD UNIQUE KEY uq_printer_ip_agent (ip_address, agent_id)",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
@@ -133,7 +143,7 @@ def _run_migrations() -> None:
                 conn.execute(text(stmt))
                 conn.commit()
             except Exception:
-                # Column already exists — safe to ignore
+                # Column already exists / index already exists — safe to ignore
                 pass
 
         # Migrate existing PrinterGroup rows → Location rows (one-time, skipped if locations exist)

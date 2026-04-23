@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Enum, ForeignKey,
-    SmallInteger, String, Text, func,
+    SmallInteger, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,9 +28,15 @@ class PrinterGroup(Base):
 
 class Printer(Base):
     __tablename__ = "printers"
+    __table_args__ = (
+        # Composite unique so two agents at different sites can share the same IP.
+        # In MariaDB/MySQL, NULL values are distinct in unique indexes, so
+        # (192.168.1.5, NULL) (local) and (192.168.1.5, 1) (agent 1) coexist fine.
+        UniqueConstraint("ip_address", "agent_id", name="uq_printer_ip_agent"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    ip_address: Mapped[str] = mapped_column(String(45), unique=True, nullable=False)
+    ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     hostname: Mapped[Optional[str]] = mapped_column(String(255))
     display_name: Mapped[Optional[str]] = mapped_column(String(255))
     vendor: Mapped[str] = mapped_column(
@@ -56,10 +62,21 @@ class Printer(Base):
     snmp_v3_priv_proto: Mapped[Optional[str]] = mapped_column(Enum("DES", "AES", name="snmp_priv_proto_enum"))
     snmp_v3_priv_key: Mapped[Optional[str]] = mapped_column(String(512))   # Fernet-encrypted
 
+    # Remote agent (NULL = locally monitored printer)
+    agent_id: Mapped[Optional[int]] = mapped_column(
+        BigInteger, ForeignKey("remote_agents.id", ondelete="SET NULL"), nullable=True
+    )
+    agent: Mapped[Optional["RemoteAgent"]] = relationship(  # type: ignore[name-defined]
+        "RemoteAgent", back_populates="printers", foreign_keys=[agent_id]
+    )
+
     # Status
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     consecutive_failures: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    # Counts how many consecutive agent checkins this printer was absent from.
+    # Used only for remote-agent printers; local printers use consecutive_failures.
+    consecutive_misses: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     added_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     notes: Mapped[Optional[str]] = mapped_column(Text)

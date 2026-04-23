@@ -18,6 +18,7 @@ from app.core.database import db
 from app.models import Printer, PrinterImportData, SiteSetting, User
 from app.models.location import Location
 from app.models.printer import PrinterGroup
+from app.models.remote_agent import RemoteAgent
 from app.utils.audit import audit
 from app.utils.timezone import TIMEZONE_CHOICES
 from app.web.routes.auth import admin_required
@@ -155,6 +156,12 @@ def index():
         from app.utils.backup import get_backup_stats
         backup_stats = get_backup_stats()
 
+    # Remote Agents — always load for nav badge; full detail only needed on agents tab
+    from flask import session as flask_session
+    agents = db.session.query(RemoteAgent).order_by(RemoteAgent.name).all()
+    public_url = _get_setting("public_url", "")
+    new_agent_info = flask_session.pop("new_agent_info", None) if tab == "agents" else None
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -180,6 +187,9 @@ def index():
         latest_release=latest_release,
         has_update=has_update,
         backup_stats=backup_stats,
+        agents=agents,
+        public_url=public_url,
+        new_agent_info=new_agent_info,
     )
 
 
@@ -647,3 +657,222 @@ def reset():
         return redirect(url_for("auth.login"))
 
     return redirect(url_for("dashboard.index"))
+
+
+# ---------------------------------------------------------------------------
+# Public URL setting
+# ---------------------------------------------------------------------------
+@bp.route("/public-url", methods=["POST"])
+@admin_required
+def save_public_url():
+    url = request.form.get("public_url", "").strip().rstrip("/")
+    _set_setting("public_url", url)
+    db.session.commit()
+    audit(current_user.username, "config_public_url", "site", f"Set public URL to {url}")
+    flash("Public URL saved.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+# ---------------------------------------------------------------------------
+# Remote Agents management
+# ---------------------------------------------------------------------------
+@bp.route("/agents/add", methods=["POST"])
+@admin_required
+def add_agent():
+    import hashlib
+    import secrets
+    from flask import session as flask_session
+
+    name = request.form.get("name", "").strip()
+    location_id = request.form.get("location_id") or None
+    subnet = request.form.get("subnet", "").strip()
+    try:
+        scan_interval = max(1, int(request.form.get("scan_interval_minutes", 60)))
+    except (ValueError, TypeError):
+        scan_interval = 60
+
+    if not name:
+        flash("Agent name is required.", "danger")
+        return redirect(url_for("config.index", tab="agents"))
+
+    if db.session.query(RemoteAgent).filter_by(name=name).first():
+        flash(f"Agent '{name}' already exists.", "danger")
+        return redirect(url_for("config.index", tab="agents"))
+
+    plaintext_key = secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(plaintext_key.encode()).hexdigest()
+
+    loc_id = int(location_id) if location_id else None
+    agent = RemoteAgent(
+        name=name,
+        location_id=loc_id,
+        api_key_hash=key_hash,
+        subnet=subnet or None,
+        scan_interval_minutes=scan_interval,
+        status="active",
+    )
+    db.session.add(agent)
+    db.session.commit()
+
+    # Build install commands with pre-filled values
+    public_url = _get_setting("public_url", "https://your-dashboard-url.com")
+    loc_name = ""
+    if loc_id:
+        loc = db.session.get(Location, loc_id)
+        if loc:
+            loc_name = loc.name
+
+    subnet_hint = subnet or "192.168.1.0/24"
+
+    windows_cmd = (
+        f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
+        f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
+        f'irm "$URL/api/agent/download/install_windows.ps1" | iex'
+    )
+    pi_cmd = (
+        f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
+        f'AGENT_SUBNET="{subnet_hint}" AGENT_LOCATION="{loc_name}" '
+        f'bash <(curl -sSL "{public_url}/api/agent/download/install_pi.sh")'
+    )
+
+    # Store in session so the template can display it once after redirect
+    flask_session["new_agent_info"] = {
+        "agent_name": name,
+        "plaintext_key": plaintext_key,
+        "windows_cmd": windows_cmd,
+        "pi_cmd": pi_cmd,
+        "agent_id": agent.id,
+    }
+
+    audit(current_user.username, "agent_add", name, f"Created remote agent '{name}'")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/command", methods=["POST"])
+@admin_required
+def agent_command(agent_id: int):
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    cmd = request.form.get("command", "").strip()
+    if cmd not in ("rescan", "update", "uninstall"):
+        flash("Unknown command.", "danger")
+        return redirect(url_for("config.index", tab="agents"))
+    agent.pending_command = cmd
+    db.session.commit()
+    audit(current_user.username, "agent_command", agent.name,
+          f"Queued command '{cmd}' for agent '{agent.name}'")
+    flash(f"Command '{cmd}' queued — agent will pick it up on next check-in.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/set-interval", methods=["POST"])
+@admin_required
+def agent_set_interval(agent_id: int):
+    import json
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    try:
+        minutes = max(1, int(request.form.get("scan_interval_minutes", 60)))
+    except (ValueError, TypeError):
+        flash("Invalid interval value.", "danger")
+        return redirect(url_for("config.index", tab="agents"))
+    agent.scan_interval_minutes = minutes
+    agent.pending_command = "config"
+    agent.pending_command_config = json.dumps({"scan_interval_minutes": minutes})
+    db.session.commit()
+    audit(current_user.username, "agent_interval", agent.name,
+          f"Set scan interval to {minutes} min for agent '{agent.name}'")
+    flash(f"Scan interval set to {minutes} min — pushed to agent on next check-in.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/set-location", methods=["POST"])
+@admin_required
+def agent_set_location(agent_id: int):
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    loc_id_raw = request.form.get("location_id") or None
+    loc_id = int(loc_id_raw) if loc_id_raw else None
+    agent.location_id = loc_id
+    # Back-fill location onto all printers under this agent
+    if loc_id:
+        db.session.query(Printer).filter_by(agent_id=agent_id).update(
+            {"location_id": loc_id}
+        )
+    db.session.commit()
+    loc = db.session.get(Location, loc_id) if loc_id else None
+    loc_name = loc.name if loc else "(none)"
+    audit(current_user.username, "agent_location", agent.name,
+          f"Set location to '{loc_name}' for agent '{agent.name}'")
+    flash(f"Location updated to '{loc_name}'.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/regenerate-key", methods=["POST"])
+@admin_required
+def agent_regenerate_key(agent_id: int):
+    import hashlib
+    import secrets
+    from flask import session as flask_session
+
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    plaintext_key = secrets.token_urlsafe(32)
+    key_hash = hashlib.sha256(plaintext_key.encode()).hexdigest()
+    agent.api_key_hash = key_hash
+    db.session.commit()
+
+    public_url = _get_setting("public_url", "https://your-dashboard-url.com")
+    subnet_hint = agent.subnet or "192.168.1.0/24"
+    loc_name = agent.location.name if agent.location else ""
+
+    windows_cmd = (
+        f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
+        f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
+        f'irm "$URL/api/agent/download/install_windows.ps1" | iex'
+    )
+    pi_cmd = (
+        f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
+        f'AGENT_SUBNET="{subnet_hint}" AGENT_LOCATION="{loc_name}" '
+        f'bash <(curl -sSL "{public_url}/api/agent/download/install_pi.sh")'
+    )
+
+    flask_session["new_agent_info"] = {
+        "agent_name": agent.name,
+        "plaintext_key": plaintext_key,
+        "windows_cmd": windows_cmd,
+        "pi_cmd": pi_cmd,
+        "agent_id": agent_id,
+        "regen": True,
+    }
+
+    audit(current_user.username, "agent_regen_key", agent.name,
+          f"Regenerated API key for agent '{agent.name}'")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/delete", methods=["POST"])
+@admin_required
+def delete_agent(agent_id: int):
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    force = request.form.get("force") == "1"
+    agent_name = agent.name
+
+    if force or agent.status == "stale":
+        # Hard-delete: agent is offline, remove the DB row and orphan remote printers
+        db.session.query(Printer).filter_by(agent_id=agent_id).update(
+            {"agent_id": None, "is_active": False}
+        )
+        db.session.delete(agent)
+        db.session.commit()
+        audit(current_user.username, "agent_force_delete", agent_name,
+              f"Force-deleted offline agent '{agent_name}'")
+        flash(f"Agent '{agent_name}' deleted. Its printers have been deactivated.", "success")
+    else:
+        # Queue uninstall command — agent deletes itself and row is removed on ACK
+        agent.pending_command = "uninstall"
+        db.session.commit()
+        audit(current_user.username, "agent_delete", agent_name,
+              f"Queued uninstall for agent '{agent_name}'")
+        flash(
+            f"Uninstall command queued for '{agent_name}'. "
+            f"The agent will remove itself on next check-in and the row will disappear.",
+            "info",
+        )
+    return redirect(url_for("config.index", tab="agents"))

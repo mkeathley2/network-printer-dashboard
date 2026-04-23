@@ -38,7 +38,12 @@
             {{ p.effective_name }}
           </a>
         </span>
-        <small class="text-muted">{{ p.vendor | upper }}</small>
+        <div class="d-flex align-items-center gap-1">
+          {% if p.agent_id %}
+            <span class="badge bg-info" title="{{ p.agent.name if p.agent else 'Remote Agent' }}">Remote</span>
+          {% endif %}
+          <small class="text-muted">{{ p.vendor | upper }}</small>
+        </div>
       </div>
       <div class="card-body py-2">
         <div class="text-muted small mb-2">

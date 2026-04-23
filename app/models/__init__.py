@@ -1,5 +1,6 @@
 from .printer import Printer, PrinterGroup
 from .location import Location
+from .remote_agent import RemoteAgent
 from .printer_import import PrinterImportData
 from .telemetry import TelemetrySnapshot, SupplySnapshot
 from .alert import AlertEvent, AlertState
@@ -11,6 +12,7 @@ from .audit import AuditLog
 __all__ = [
     "Printer", "PrinterGroup",
     "Location",
+    "RemoteAgent",
     "PrinterImportData",
     "TelemetrySnapshot", "SupplySnapshot",
     "AlertEvent", "AlertState",

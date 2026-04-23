@@ -50,6 +50,95 @@ scheduler.add_job(
     replace_existing=True,
 )
 
+
+def _check_stale_agents() -> None:
+    """
+    Every 5 minutes: flip agents to 'stale' if they haven't checked in within
+    2× their scan_interval_minutes, and send a one-time alert email.
+    Also clears the 'stale' status if an agent has already come back
+    (which is handled on checkin, but this re-checks in case of partial updates).
+    """
+    with app.app_context():
+        try:
+            from app.core.database import get_db
+            from app.models.remote_agent import RemoteAgent
+
+            with get_db() as db_session:
+                agents = db_session.query(RemoteAgent).filter(
+                    RemoteAgent.status.in_(["active", "stale"])
+                ).all()
+
+                for agent in agents:
+                    if agent.last_checkin_at is None:
+                        continue
+                    stale_minutes = agent.scan_interval_minutes * 2
+                    elapsed_minutes = (
+                        datetime.utcnow() - agent.last_checkin_at
+                    ).total_seconds() / 60
+
+                    if elapsed_minutes >= stale_minutes:
+                        agent.status = "stale"
+                        if not agent.stale_alert_sent:
+                            _send_agent_stale_alert(agent)
+                            agent.stale_alert_sent = True
+        except Exception:
+            logger.exception("Error during stale-agent check")
+
+
+def _send_agent_stale_alert(agent) -> None:
+    """Send a one-time email when a remote agent goes stale."""
+    try:
+        from app.alerts.notifier import get_smtp_settings, _send_email
+        smtp = get_smtp_settings()
+        if not smtp["enabled"] or not smtp["alert_to"]:
+            return
+
+        loc_name = agent.location.name if agent.location else "No location"
+        last_seen = agent.last_checkin_at.strftime("%Y-%m-%d %H:%M UTC") if agent.last_checkin_at else "never"
+
+        subject = f"[Printer Alert] Remote Agent Offline — {agent.name}"
+        body_text = (
+            f"Remote Agent Offline\n\n"
+            f"Agent:      {agent.name}\n"
+            f"Location:   {loc_name}\n"
+            f"Last Seen:  {last_seen}\n"
+            f"Subnet:     {agent.subnet or 'unknown'}\n\n"
+            f"The agent has not checked in for more than {agent.scan_interval_minutes * 2} minutes.\n"
+            f"Printer data from this site is frozen until the agent reconnects.\n\n"
+            f"This is an automated message from the Network Printer Dashboard."
+        )
+        body_html = f"""\
+<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;">
+  <h2 style="color:#c0392b;">Remote Agent Offline</h2>
+  <table cellpadding="6" cellspacing="0" border="0" style="border-collapse:collapse;">
+    <tr><td><strong>Agent</strong></td><td>{agent.name}</td></tr>
+    <tr><td><strong>Location</strong></td><td>{loc_name}</td></tr>
+    <tr><td><strong>Last Seen</strong></td><td>{last_seen}</td></tr>
+    <tr><td><strong>Subnet</strong></td><td>{agent.subnet or 'unknown'}</td></tr>
+  </table>
+  <p>The agent has not checked in for more than {agent.scan_interval_minutes * 2} minutes.<br>
+  Printer data from this site is <strong>frozen</strong> until the agent reconnects.</p>
+  <hr/>
+  <p style="font-size:12px;color:#999;">Automated alert from the <strong>Network Printer Dashboard</strong>.</p>
+</body></html>"""
+
+        _send_email(subject, body_text, body_html, smtp["alert_to"])
+        logger.info("Stale-agent alert sent for '%s'", agent.name)
+    except Exception:
+        logger.exception("Failed to send stale-agent alert for '%s'", agent.name)
+
+
+# Import datetime for the stale check
+from datetime import datetime  # noqa: E402
+
+scheduler.add_job(
+    _check_stale_agents,
+    trigger="interval",
+    minutes=5,
+    id="stale_agent_check",
+    replace_existing=True,
+)
+
 scheduler.start()
 logger.info("Scheduler started. Poll interval: %d minutes", _interval)
 
