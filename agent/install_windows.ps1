@@ -115,7 +115,7 @@ $config = @{
     agent_version         = "1.0.0"
 } | ConvertTo-Json -Depth 5
 
-[System.IO.File]::WriteAllText("$InstallDir\agent_config.json", $config, [System.Text.Encoding]::UTF8)
+[System.IO.File]::WriteAllText("$InstallDir\agent_config.json", $config, (New-Object System.Text.UTF8Encoding $false))
 Write-OK "Config written."
 
 # --- Locate Python executable ---

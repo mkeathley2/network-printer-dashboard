@@ -543,7 +543,7 @@ def load_config() -> dict:
     if not _CONFIG_PATH.exists():
         logger.error("Config file not found: %s — run with --setup first", _CONFIG_PATH)
         sys.exit(1)
-    with open(_CONFIG_PATH, encoding="utf-8") as f:
+    with open(_CONFIG_PATH, encoding="utf-8-sig") as f:
         return json.load(f)
 
 
