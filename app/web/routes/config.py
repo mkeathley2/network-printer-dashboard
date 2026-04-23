@@ -727,9 +727,9 @@ def add_agent():
     subnet_hint = subnet or "192.168.1.0/24"
 
     windows_cmd = (
-        f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
-        f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
-        f'irm -Headers @{{"X-Agent-Key"=$KEY}} "$URL/api/agent/download/install_windows.ps1" | iex'
+        f'$env:AGENT_URL="{public_url}"; $env:AGENT_KEY="{plaintext_key}"; '
+        f'$env:AGENT_SUBNET="{subnet_hint}"; $env:AGENT_LOCATION="{loc_name}"; '
+        f'irm -Headers @{{"X-Agent-Key"=$env:AGENT_KEY}} "$env:AGENT_URL/api/agent/download/install_windows.ps1" | iex'
     )
     pi_cmd = (
         f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
@@ -825,9 +825,9 @@ def agent_regenerate_key(agent_id: int):
     loc_name = agent.location.name if agent.location else ""
 
     windows_cmd = (
-        f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
-        f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
-        f'irm -Headers @{{"X-Agent-Key"=$KEY}} "$URL/api/agent/download/install_windows.ps1" | iex'
+        f'$env:AGENT_URL="{public_url}"; $env:AGENT_KEY="{plaintext_key}"; '
+        f'$env:AGENT_SUBNET="{subnet_hint}"; $env:AGENT_LOCATION="{loc_name}"; '
+        f'irm -Headers @{{"X-Agent-Key"=$env:AGENT_KEY}} "$env:AGENT_URL/api/agent/download/install_windows.ps1" | iex'
     )
     pi_cmd = (
         f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
