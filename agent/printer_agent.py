@@ -494,9 +494,9 @@ def self_update(cfg: dict) -> None:
     system = platform.system()
     try:
         if system == "Windows":
-            subprocess.Popen(["sc", "stop", "PrinterAgent"])
-            time.sleep(2)
-            subprocess.Popen(["sc", "start", "PrinterAgent"])
+            subprocess.Popen(["powershell", "-Command",
+                              "Stop-ScheduledTask -TaskName PrinterAgent -ErrorAction SilentlyContinue; "
+                              "Start-Sleep 2; Start-ScheduledTask -TaskName PrinterAgent"])
         else:
             subprocess.Popen(["sudo", "systemctl", "restart", "printer-agent"])
     except Exception as exc:
@@ -514,9 +514,10 @@ def uninstall() -> None:
     system = platform.system()
     try:
         if system == "Windows":
-            subprocess.run(["sc", "stop", "PrinterAgent"], check=False)
-            time.sleep(1)
-            subprocess.run(["sc", "delete", "PrinterAgent"], check=False)
+            subprocess.run(["powershell", "-Command",
+                            "Stop-ScheduledTask -TaskName PrinterAgent -ErrorAction SilentlyContinue; "
+                            "Unregister-ScheduledTask -TaskName PrinterAgent -Confirm:$false -ErrorAction SilentlyContinue"],
+                           check=False)
         else:
             subprocess.run(["sudo", "systemctl", "disable", "--now", "printer-agent"], check=False)
             subprocess.run(["sudo", "rm", "-f", "/etc/systemd/system/printer-agent.service"],
