@@ -729,12 +729,12 @@ def add_agent():
     windows_cmd = (
         f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
         f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
-        f'irm "$URL/api/agent/download/install_windows.ps1" | iex'
+        f'irm -Headers @{{"X-Agent-Key"=$KEY}} "$URL/api/agent/download/install_windows.ps1" | iex'
     )
     pi_cmd = (
         f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
         f'AGENT_SUBNET="{subnet_hint}" AGENT_LOCATION="{loc_name}" '
-        f'bash <(curl -sSL "{public_url}/api/agent/download/install_pi.sh")'
+        f'bash <(curl -sSL -H "X-Agent-Key: {plaintext_key}" "{public_url}/api/agent/download/install_pi.sh")'
     )
 
     # Store in session so the template can display it once after redirect
@@ -827,12 +827,12 @@ def agent_regenerate_key(agent_id: int):
     windows_cmd = (
         f'$URL="{public_url}"; $KEY="{plaintext_key}"; '
         f'$SUBNET="{subnet_hint}"; $LOCATION="{loc_name}"; '
-        f'irm "$URL/api/agent/download/install_windows.ps1" | iex'
+        f'irm -Headers @{{"X-Agent-Key"=$KEY}} "$URL/api/agent/download/install_windows.ps1" | iex'
     )
     pi_cmd = (
         f'AGENT_URL="{public_url}" AGENT_KEY="{plaintext_key}" '
         f'AGENT_SUBNET="{subnet_hint}" AGENT_LOCATION="{loc_name}" '
-        f'bash <(curl -sSL "{public_url}/api/agent/download/install_pi.sh")'
+        f'bash <(curl -sSL -H "X-Agent-Key: {plaintext_key}" "{public_url}/api/agent/download/install_pi.sh")'
     )
 
     flask_session["new_agent_info"] = {
