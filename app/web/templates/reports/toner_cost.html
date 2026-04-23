@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Toner Cost Report{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><i class="bi bi-currency-dollar me-2"></i>Toner Cost</h5>
+</div>
+
+<form method="GET" class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label small mb-1">Date Range</label>
+    <select name="days" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for d, label in [('90','Last 90 days'),('180','Last 180 days'),('365','Last year'),('0','All time')] %}
+      <option value="{{ d }}" {% if days == d %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <a href="{{ url_for('reports.toner_cost', days=days, format='csv') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Download CSV
+    </a>
+  </div>
+</form>
+
+{% if totals %}
+<div class="card mb-3">
+  <div class="card-header fw-semibold">Total Cost by Printer</div>
+  <div class="card-body"><canvas id="costChart" height="80"></canvas></div>
+</div>
+<script>
+new Chart(document.getElementById('costChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ totals | map(attribute=0) | list | tojson }},
+    datasets: [{
+      label: 'Total Cost ($)',
+      data: {{ totals | map(attribute=1) | list | tojson }},
+      backgroundColor: 'rgba(255,193,7,0.7)',
+      borderColor: 'rgba(255,193,7,1)',
+      borderWidth: 1,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v.toFixed(2) } } }
+  }
+});
+</script>
+{% endif %}
+
+{% if rows %}
+<div class="card">
+  <div class="card-header fw-semibold d-flex justify-content-between">
+    Replacement Events
+    <span class="text-muted fw-normal small">
+      Total with cost: ${{ '%.2f' | format(rows | selectattr('cost') | map(attribute='cost') | sum) }}
+    </span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Date</th><th>Printer</th><th>Location</th><th>Color</th><th>Level When Replaced</th><th>Cost</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="small text-muted">{{ r.occurred_at | localtime }}</td>
+          <td><a href="{{ url_for('printers.detail', printer_id=r.printer_id) }}">{{ r.printer_name }}</a></td>
+          <td class="small text-muted">{{ r.location or '—' }}</td>
+          <td>
+            <span class="badge" style="background:{% if r.color=='black' %}#333{% elif r.color=='cyan' %}#0dcaf0{% elif r.color=='magenta' %}#d63384{% elif r.color=='yellow' %}#ffc107{% else %}#6c757d{% endif %}">
+              {{ r.color | title }}
+            </span>
+          </td>
+          <td class="small">{{ r.level_pct ~ '%' if r.level_pct is not none else '—' }}</td>
+          <td>
+            {% if r.cost is not none %}
+              <span class="fw-semibold text-success">${{ '%.2f' | format(r.cost) }}</span>
+            {% else %}
+              <span class="text-muted small">— <a href="{{ url_for('printers.detail', printer_id=r.printer_id) }}#replacements" class="small">Add cost</a></span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">No toner replacement events found for the selected period.</div>
+{% endif %}
+{% endblock %}

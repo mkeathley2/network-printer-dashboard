@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Cost Per Page Report{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><i class="bi bi-calculator me-2"></i>Cost Per Page</h5>
+</div>
+<p class="text-muted small">Only printers with both toner cost data <em>and</em> page count history are shown. Enter costs on each printer's detail page.</p>
+
+<form method="GET" class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label small mb-1">Date Range</label>
+    <select name="days" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for d, label in [('90','Last 90 days'),('180','Last 180 days'),('365','Last year'),('0','All time')] %}
+      <option value="{{ d }}" {% if days == d %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <a href="{{ url_for('reports.cost_per_page', days=days, format='csv') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Download CSV
+    </a>
+  </div>
+</form>
+
+{% if rows %}
+<div class="card mb-3">
+  <div class="card-body"><canvas id="cppChart" height="80"></canvas></div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Printer</th><th>Location</th><th>Total Cost</th><th>Pages Printed</th><th>Replacements</th><th>Cost Per Page</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td><a href="{{ url_for('printers.detail', printer_id=r.printer_id if r.printer_id is defined else '#') }}">{{ r.printer_name }}</a></td>
+          <td class="small text-muted">{{ r.location or '—' }}</td>
+          <td>${{ '%.2f' | format(r.total_cost) }}</td>
+          <td>{{ '{:,}'.format(r.total_pages) }}</td>
+          <td>{{ r.replacements }}</td>
+          <td class="fw-semibold">${{ '%.4f' | format(r.cost_per_page) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+new Chart(document.getElementById('cppChart'), {
+  type: 'bar',
+  data: {
+    labels: {{ rows | map(attribute='printer_name') | list | tojson }},
+    datasets: [{
+      label: 'Cost Per Page ($)',
+      data: {{ rows | map(attribute='cost_per_page') | list | tojson }},
+      backgroundColor: 'rgba(25,135,84,0.7)',
+      borderColor: 'rgba(25,135,84,1)',
+      borderWidth: 1,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v.toFixed(4) } } }
+  }
+});
+</script>
+{% else %}
+<div class="alert alert-info">No data yet. Enter toner replacement costs on printer detail pages to see cost-per-page data here.</div>
+{% endif %}
+{% endblock %}

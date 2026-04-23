@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Toner Consumption Rate{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><i class="bi bi-speedometer me-2"></i>Toner Consumption Rate</h5>
+</div>
+<p class="text-muted small">Based on linear regression of supply level readings. Printers with fewer than 3 data points in the period are excluded.</p>
+
+<form method="GET" class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label small mb-1">Regression Window</label>
+    <select name="days" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for d, label in [('14','Last 14 days'),('30','Last 30 days'),('60','Last 60 days'),('90','Last 90 days')] %}
+      <option value="{{ d }}" {% if days == d %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <a href="{{ url_for('reports.consumption_rate', days=days, format='csv') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Download CSV
+    </a>
+  </div>
+</form>
+
+{% if rows %}
+<!-- Highlight printers running low soon -->
+{% set critical_rows = rows | selectattr('days_remaining', 'ne', none) | selectattr('days_remaining', 'lt', 7) | list %}
+{% if critical_rows %}
+<div class="alert alert-danger py-2 mb-3">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <strong>{{ critical_rows | length }} supply(ies) predicted to run out within 7 days:</strong>
+  {% for r in critical_rows %}
+    <strong>{{ r.printer_name }}</strong> ({{ r.color | title }}, ~{{ '%.1f' | format(r.days_remaining) }} days){% if not loop.last %}, {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Printer</th><th>Location</th><th>Supply</th><th>Current %</th>
+          <th>% Per Day</th><th>Est. Days Left</th><th>Data Points</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        {% set urgent = r.days_remaining is not none and r.days_remaining < 7 %}
+        {% set warn = r.days_remaining is not none and r.days_remaining < 14 %}
+        <tr class="{% if urgent %}table-danger{% elif warn %}table-warning{% endif %}">
+          <td><a href="{{ url_for('printers.detail', printer_id=r.printer_id) }}">{{ r.printer_name }}</a></td>
+          <td class="small text-muted">{{ r.location or '—' }}</td>
+          <td>
+            <span class="badge" style="background:{% if r.color=='black' %}#333{% elif r.color=='cyan' %}#0dcaf0{% elif r.color=='magenta' %}#d63384{% elif r.color=='yellow' %}#ffc107{% else %}#6c757d{% endif %}">
+              {{ r.color | title }}
+            </span>
+            <span class="small ms-1">{{ r.description }}</span>
+          </td>
+          <td>
+            <div class="progress" style="height:16px;width:80px;display:inline-flex;">
+              <div class="progress-bar {% if r.current_pct <= 10 %}bg-danger{% elif r.current_pct <= 25 %}bg-warning{% else %}bg-success{% endif %}"
+                   style="width:{{ r.current_pct }}%"></div>
+            </div>
+            <span class="small ms-1">{{ '%.1f' | format(r.current_pct) }}%</span>
+          </td>
+          <td class="small">{{ '%.2f' | format(r.pct_per_day) }}%/day</td>
+          <td class="fw-semibold {% if urgent %}text-danger{% elif warn %}text-warning{% endif %}">
+            {% if r.days_remaining is not none %}
+              {{ '%.1f' | format(r.days_remaining) }} days
+              <small class="text-muted">(~{{ (r.days_remaining | int) | string }} day{{ 's' if r.days_remaining >= 2 else '' }})</small>
+            {% else %}—{% endif %}
+          </td>
+          <td class="small text-muted">{{ r.data_points }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="alert alert-info">No consumption data found. Printers need at least 3 toner level readings in the selected window. Check that polling is running.</div>
+{% endif %}
+{% endblock %}

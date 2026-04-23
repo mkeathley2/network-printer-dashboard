@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<h5 class="mb-4"><i class="bi bi-bar-chart-line me-2"></i>Reports</h5>
+
+<div class="row g-3">
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.print_volume') }}" class="text-decoration-none">
+      <div class="card h-100 border-primary">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-printer me-2 text-primary"></i>Print Volume</h5>
+          <p class="card-text text-muted small">Which printers (and people) are printing the most. Ranked by pages printed in a selected date range.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.prints_over_time') }}" class="text-decoration-none">
+      <div class="card h-100 border-info">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-graph-up me-2 text-info"></i>Page Count Over Time</h5>
+          <p class="card-text text-muted small">Cumulative page count trends across all printers on a single chart. Compare growth rates side by side.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.toner_cost') }}" class="text-decoration-none">
+      <div class="card h-100 border-warning">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-currency-dollar me-2 text-warning"></i>Toner Cost</h5>
+          <p class="card-text text-muted small">All toner replacement events with costs entered. Totals by printer. Enter costs on each printer's detail page.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.cost_per_page') }}" class="text-decoration-none">
+      <div class="card h-100 border-success">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-calculator me-2 text-success"></i>Cost Per Page</h5>
+          <p class="card-text text-muted small">Total toner spend divided by pages printed. Shows which printers are cheapest or most expensive to run.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.consumption_rate') }}" class="text-decoration-none">
+      <div class="card h-100 border-danger">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-speedometer me-2 text-danger"></i>Toner Consumption Rate</h5>
+          <p class="card-text text-muted small">How fast each printer burns through toner (% per day). Shows estimated days remaining at current rate.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-md-4">
+    <a href="{{ url_for('reports.reliability') }}" class="text-decoration-none">
+      <div class="card h-100 border-secondary">
+        <div class="card-body">
+          <h5 class="card-title"><i class="bi bi-exclamation-triangle me-2 text-secondary"></i>Printer Reliability</h5>
+          <p class="card-text text-muted small">Offline event counts per printer. Identify problem hardware that goes down most frequently.</p>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+{% endblock %}

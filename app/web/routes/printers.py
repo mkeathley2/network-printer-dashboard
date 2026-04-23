@@ -6,6 +6,7 @@ from flask_login import current_user, login_required
 from app.core.config import config
 from app.core.database import db
 from app.models import Printer, PrinterImportData, SiteSetting, SupplySnapshot, TelemetrySnapshot
+from app.models.alert import AlertEvent
 from app.models.location import Location
 from app.utils.audit import audit
 from app.web.routes.auth import admin_required
@@ -82,6 +83,17 @@ def detail(printer_id: int):
     helpdesk_row = db.session.get(SiteSetting, "helpdesk_email")
     helpdesk_configured = bool(helpdesk_row and helpdesk_row.value)
 
+    # Toner replacement history
+    replacements = (
+        db.session.query(AlertEvent)
+        .filter(
+            AlertEvent.printer_id == printer_id,
+            AlertEvent.event_type.in_(["toner_replaced", "drum_replaced"]),
+        )
+        .order_by(AlertEvent.occurred_at.desc())
+        .all()
+    )
+
     warn_pct, crit_pct = get_effective_thresholds(printer)
     return render_template(
         "printers/detail.html",
@@ -89,6 +101,7 @@ def detail(printer_id: int):
         latest_telemetry=latest_telemetry,
         supplies=supplies,
         helpdesk_configured=helpdesk_configured,
+        replacements=replacements,
         warn_pct=warn_pct,
         crit_pct=crit_pct,
     )
@@ -305,6 +318,27 @@ def poll_now(printer_id: int):
               f"Manual poll failed for {printer.effective_name}: {e}", success=False)
         flash(f"Poll failed: {e}", "danger")
     return redirect(url_for("printers.detail", printer_id=printer_id))
+
+
+@bp.route("/<int:printer_id>/replacement-cost/<int:event_id>", methods=["POST"])
+@admin_required
+def set_replacement_cost(printer_id: int, event_id: int):
+    """Save or update the cost for a toner replacement event."""
+    db.get_or_404(Printer, printer_id)
+    evt = db.get_or_404(AlertEvent, event_id)
+    cost_str = request.form.get("cost", "").strip()
+    try:
+        cost = float(cost_str) if cost_str else None
+        if cost is not None and cost < 0:
+            cost = None
+    except ValueError:
+        cost = None
+    evt.replacement_cost = cost
+    db.session.commit()
+    audit(current_user.username, "replacement_cost", str(printer_id),
+          f"Set replacement cost for event {event_id} to {cost}")
+    flash("Cost saved." if cost is not None else "Cost cleared.", "success")
+    return redirect(url_for("printers.detail", printer_id=printer_id) + "#replacements")
 
 
 @bp.route("/<int:printer_id>/ticket", methods=["POST"])

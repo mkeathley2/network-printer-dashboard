@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Page Count Over Time{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Page Count Over Time</h5>
+</div>
+
+<!-- Filters -->
+<div class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label small mb-1">Date Range</label>
+    <select id="daysSelect" class="form-select form-select-sm">
+      {% for d, label in [('30','Last 30 days'),('90','Last 90 days'),('365','Last 365 days'),('0','All time')] %}
+      <option value="{{ d }}" {% if days == d %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button id="loadBtn" class="btn btn-sm btn-primary">Load</button>
+  </div>
+  <div class="col-auto">
+    <a id="csvLink" href="{{ url_for('reports.prints_over_time', days=days, format='csv') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Download CSV
+    </a>
+  </div>
+</div>
+
+<!-- Printer toggle checkboxes -->
+<div class="mb-3" id="printerToggles">
+  {% for p in printers %}
+  <div class="form-check form-check-inline">
+    <input class="form-check-input printer-toggle" type="checkbox" id="p{{ p.id }}"
+           value="{{ p.id }}" checked>
+    <label class="form-check-label small" for="p{{ p.id }}">{{ p.effective_name }}</label>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <canvas id="timeChart" height="80"></canvas>
+  </div>
+</div>
+
+<div id="noData" class="alert alert-info d-none">No page count data found for the selected period.</div>
+
+<script>
+let chart = null;
+const COLORS = [
+  '#0d6efd','#dc3545','#198754','#ffc107','#0dcaf0','#6f42c1',
+  '#fd7e14','#20c997','#6610f2','#d63384'
+];
+
+async function loadData() {
+  const days = document.getElementById('daysSelect').value;
+  const checked = [...document.querySelectorAll('.printer-toggle:checked')].map(e => e.value);
+  if (!checked.length) return;
+
+  const params = new URLSearchParams({days});
+  checked.forEach(id => params.append('p', id));
+
+  const resp = await fetch(`{{ url_for('reports.api_pages_over_time') }}?${params}`);
+  const data = await resp.json();
+  const keys = Object.keys(data);
+
+  document.getElementById('noData').classList.toggle('d-none', keys.length > 0);
+
+  const datasets = keys.map((pid, i) => ({
+    label: data[pid].name,
+    data: data[pid].data,
+    borderColor: COLORS[i % COLORS.length],
+    backgroundColor: 'transparent',
+    tension: 0.3,
+    pointRadius: 2,
+  }));
+
+  if (chart) {
+    chart.data.datasets = datasets;
+    chart.update();
+  } else {
+    chart = new Chart(document.getElementById('timeChart'), {
+      type: 'line',
+      data: { datasets },
+      options: {
+        responsive: true,
+        parsing: false,
+        scales: {
+          x: { type: 'time', time: { unit: 'day' }, adapters: { date: {} } },
+          y: { ticks: { callback: v => v.toLocaleString() } }
+        },
+        plugins: { legend: { position: 'bottom' } }
+      }
+    });
+  }
+
+  // Update CSV link
+  const csvParams = new URLSearchParams({days, format: 'csv'});
+  document.getElementById('csvLink').href = `{{ url_for('reports.prints_over_time') }}?${csvParams}`;
+}
+
+document.getElementById('loadBtn').addEventListener('click', loadData);
+document.getElementById('daysSelect').addEventListener('change', loadData);
+document.querySelectorAll('.printer-toggle').forEach(cb => cb.addEventListener('change', loadData));
+loadData();
+</script>
+{% endblock %}

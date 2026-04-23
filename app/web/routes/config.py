@@ -140,6 +140,13 @@ def index():
 
     alert_settings = {key: _get_setting(key, "1") for key, _ in ALERT_TOGGLE_DEFS}
 
+    # Predictive toner settings
+    predictive_settings = {
+        "enabled": _get_setting("predictive_toner_enabled", "0") == "1",
+        "days": int(_get_setting("predictive_toner_days", "7")),
+        "min_points": int(_get_setting("predictive_toner_min_points", "5")),
+    }
+
     # Updates tab
     current_version = "unknown"
     latest_release = None
@@ -183,6 +190,7 @@ def index():
         removed_printers=removed_printers,
         alert_settings=alert_settings,
         alert_toggle_defs=ALERT_TOGGLE_DEFS,
+        predictive_settings=predictive_settings,
         current_version=current_version,
         latest_release=latest_release,
         has_update=has_update,
@@ -205,6 +213,29 @@ def save_alert_settings():
     db.session.commit()
     audit(current_user.username, "config_alerts", "site", "Updated alert email settings")
     flash("Alert settings saved.", "success")
+    return redirect(url_for("config.index", tab="alerts"))
+
+
+@bp.route("/save-predictive-settings", methods=["POST"])
+@admin_required
+def save_predictive_settings():
+    enabled = "1" if request.form.get("predictive_toner_enabled") else "0"
+    try:
+        days = max(1, min(60, int(request.form.get("predictive_toner_days", 7))))
+    except (ValueError, TypeError):
+        days = 7
+    try:
+        min_points = max(3, min(30, int(request.form.get("predictive_toner_min_points", 5))))
+    except (ValueError, TypeError):
+        min_points = 5
+    _set_setting("predictive_toner_enabled", enabled)
+    _set_setting("predictive_toner_days", str(days))
+    _set_setting("predictive_toner_min_points", str(min_points))
+    db.session.commit()
+    audit(current_user.username, "config_predictive", "site",
+          f"Predictive toner alerts {'enabled' if enabled == '1' else 'disabled'}, "
+          f"threshold={days}d, min_points={min_points}")
+    flash("Predictive toner settings saved.", "success")
     return redirect(url_for("config.index", tab="alerts"))
 
 

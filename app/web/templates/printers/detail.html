@@ -163,6 +163,73 @@
   </div>
 </div>
 
+<!-- Toner Replacement History -->
+<div class="row g-3 mt-1" id="replacements">
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-arrow-repeat me-1"></i>Toner Replacement History</span>
+        <span class="text-muted fw-normal small">{{ replacements | length }} replacement(s) recorded</span>
+      </div>
+      {% if replacements %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Date</th>
+              <th>Color</th>
+              <th>Supply</th>
+              <th>Level at Replace</th>
+              <th>Cost</th>
+              {% if current_user.is_admin %}<th>Edit Cost</th>{% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for evt in replacements %}
+            <tr>
+              <td class="small text-muted">{{ evt.occurred_at | localtime }}</td>
+              <td>
+                <span class="badge" style="background:{% if evt.supply_color=='black' %}#333{% elif evt.supply_color=='cyan' %}#0dcaf0{% elif evt.supply_color=='magenta' %}#d63384{% elif evt.supply_color=='yellow' %}#ffc107{% else %}#6c757d{% endif %}">
+                  {{ (evt.supply_color or 'unknown') | title }}
+                </span>
+              </td>
+              <td class="small">{{ evt.notes or '—' }}</td>
+              <td class="small">{{ evt.level_pct_at_event ~ '%' if evt.level_pct_at_event is not none else '—' }}</td>
+              <td>
+                {% if evt.replacement_cost is not none %}
+                  <span class="fw-semibold text-success">${{ '%.2f' | format(evt.replacement_cost | float) }}</span>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              {% if current_user.is_admin %}
+              <td>
+                <form method="POST"
+                      action="{{ url_for('printers.set_replacement_cost', printer_id=printer.id, event_id=evt.id) }}"
+                      class="d-flex gap-1 align-items-center">
+                  <div class="input-group input-group-sm" style="width:130px;">
+                    <span class="input-group-text">$</span>
+                    <input type="number" name="cost" class="form-control form-control-sm"
+                           step="0.01" min="0" max="9999.99"
+                           value="{{ '%.2f' | format(evt.replacement_cost | float) if evt.replacement_cost is not none else '' }}"
+                           placeholder="0.00">
+                  </div>
+                  <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2">Save</button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="card-body text-muted small">No toner replacements recorded yet. Replacements are detected automatically when supply levels jump upward.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
 {% if current_user.is_admin %}
 <!-- Per-printer threshold settings -->
 <div class="row g-3 mt-1">

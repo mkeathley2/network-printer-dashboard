@@ -5,7 +5,7 @@ from typing import Optional
 
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Enum, ForeignKey,
-    SmallInteger, String, Text, UniqueConstraint, func,
+    Numeric, SmallInteger, String, Text, UniqueConstraint, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -42,6 +42,7 @@ class AlertEvent(Base):
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)
     notes: Mapped[Optional[str]] = mapped_column(Text)
+    replacement_cost: Mapped[Optional[float]] = mapped_column(Numeric(10, 2))
 
     printer: Mapped["Printer"] = relationship("Printer", back_populates="alert_events")  # type: ignore[name-defined]
 
@@ -72,6 +73,7 @@ class AlertState(Base):
     email_sent_warning: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_sent_critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_level_pct: Mapped[Optional[int]] = mapped_column(SmallInteger)
+    predictive_alert_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )

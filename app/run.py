@@ -128,14 +128,157 @@ def _send_agent_stale_alert(agent) -> None:
         logger.exception("Failed to send stale-agent alert for '%s'", agent.name)
 
 
-# Import datetime for the stale check
-from datetime import datetime  # noqa: E402
+# Import datetime for the stale check and predictive alerts
+from datetime import datetime, timedelta  # noqa: E402
 
 scheduler.add_job(
     _check_stale_agents,
     trigger="interval",
     minutes=5,
     id="stale_agent_check",
+    replace_existing=True,
+)
+
+
+def _check_predictive_toner() -> None:
+    """
+    Every hour: for each active printer supply, fit a linear regression to recent
+    SupplySnapshot readings. If the supply is predicted to run out within the configured
+    threshold, auto-create a helpdesk ticket (once per supply lifecycle).
+    """
+    with app.app_context():
+        try:
+            from app.core.database import get_db
+            from app.models import SiteSetting
+
+            # Check if feature is enabled
+            enabled_row = db.session.get(SiteSetting, "predictive_toner_enabled")
+            if not (enabled_row and enabled_row.value == "1"):
+                return
+
+            threshold_row = db.session.get(SiteSetting, "predictive_toner_days")
+            min_pts_row = db.session.get(SiteSetting, "predictive_toner_min_points")
+            threshold_days = int(threshold_row.value) if threshold_row and threshold_row.value else 7
+            min_points = int(min_pts_row.value) if min_pts_row and min_pts_row.value else 5
+
+            from app.models import Printer, SupplySnapshot
+            from app.models.alert import AlertState
+            from app.core.database import db
+
+            printers = db.session.query(Printer).filter_by(is_active=True).all()
+            for printer in printers:
+                # Get distinct supply indexes for this printer
+                indexes = [
+                    row[0] for row in
+                    db.session.query(SupplySnapshot.supply_index).filter(
+                        SupplySnapshot.printer_id == printer.id,
+                        SupplySnapshot.supply_type == "tonerCartridge",
+                        SupplySnapshot.level_pct.isnot(None),
+                    ).distinct().all()
+                ]
+
+                for idx in indexes:
+                    cutoff = datetime.utcnow() - timedelta(days=90)
+                    readings = (
+                        db.session.query(SupplySnapshot)
+                        .filter(
+                            SupplySnapshot.printer_id == printer.id,
+                            SupplySnapshot.supply_index == idx,
+                            SupplySnapshot.supply_type == "tonerCartridge",
+                            SupplySnapshot.level_pct.isnot(None),
+                            SupplySnapshot.polled_at >= cutoff,
+                        )
+                        .order_by(SupplySnapshot.polled_at)
+                        .all()
+                    )
+
+                    if len(readings) < min_points:
+                        continue
+
+                    # Linear regression: % per day
+                    epoch = readings[0].polled_at.timestamp()
+                    xs = [(r.polled_at.timestamp() - epoch) / 86400.0 for r in readings]
+                    ys = [float(r.level_pct) for r in readings]
+                    n = len(xs)
+                    sum_x = sum(xs)
+                    sum_y = sum(ys)
+                    sum_xy = sum(x * y for x, y in zip(xs, ys))
+                    sum_xx = sum(x * x for x in xs)
+                    denom = n * sum_xx - sum_x * sum_x
+                    slope = ((n * sum_xy - sum_x * sum_y) / denom) if denom != 0 else 0.0
+
+                    if slope >= 0:
+                        continue  # Not depleting
+
+                    current_pct = ys[-1]
+                    days_remaining = current_pct / abs(slope)
+
+                    if days_remaining > threshold_days:
+                        continue
+
+                    # Check dedup via AlertState.predictive_alert_sent
+                    state = db.session.query(AlertState).filter_by(
+                        printer_id=printer.id, supply_index=idx
+                    ).first()
+                    if state and state.predictive_alert_sent:
+                        continue
+
+                    # Fire the ticket
+                    _send_predictive_ticket(printer, readings[-1], days_remaining, abs(slope), len(readings))
+
+                    # Mark sent
+                    if not state:
+                        state = AlertState(
+                            printer_id=printer.id,
+                            supply_index=idx,
+                            alert_level="none",
+                        )
+                        db.session.add(state)
+                    state.predictive_alert_sent = True
+                    db.session.commit()
+
+        except Exception:
+            logger.exception("Error during predictive toner check")
+
+
+def _send_predictive_ticket(printer, latest_reading, days_remaining: float,
+                             pct_per_day: float, data_points: int) -> None:
+    """Send a helpdesk ticket for a predicted toner runout."""
+    try:
+        from app.alerts.notifier import send_helpdesk_ticket
+
+        color = (latest_reading.supply_color or "unknown").title()
+        desc = latest_reading.supply_description or f"{color} Toner"
+        current_pct = latest_reading.level_pct
+        loc_name = printer.location.name if getattr(printer, "location", None) else "Unknown"
+        predicted_date = (datetime.utcnow() + timedelta(days=days_remaining)).strftime("%Y-%m-%d")
+
+        note = (
+            f"PREDICTIVE TONER ALERT (auto-generated)\n\n"
+            f"Supply:           {desc}\n"
+            f"Current Level:    {current_pct}%\n"
+            f"Consumption Rate: {pct_per_day:.2f}% per day\n"
+            f"Estimated Days Remaining: {days_remaining:.1f} days\n"
+            f"Predicted Empty:  {predicted_date}\n"
+            f"Based on {data_points} readings.\n\n"
+            f"Please order or replace this supply soon."
+        )
+
+        ok, msg = send_helpdesk_ticket(printer, [], note, "system/predictive")
+        if ok:
+            logger.info("Predictive ticket sent for '%s' supply %s (%s, %.1f days)",
+                        printer.effective_name, desc, color, days_remaining)
+        else:
+            logger.warning("Predictive ticket failed for '%s': %s", printer.effective_name, msg)
+    except Exception:
+        logger.exception("Failed to send predictive ticket for '%s'", printer.effective_name)
+
+
+scheduler.add_job(
+    _check_predictive_toner,
+    trigger="interval",
+    hours=1,
+    id="predictive_toner_check",
     replace_existing=True,
 )
 

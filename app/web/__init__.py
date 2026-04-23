@@ -57,6 +57,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     from app.web.routes.api import bp as api_bp
     from app.web.routes.config import bp as config_bp
     from app.web.routes.agent_api import bp as agent_api_bp
+    from app.web.routes.reports import bp as reports_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -67,6 +68,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     app.register_blueprint(api_bp)
     app.register_blueprint(config_bp)
     app.register_blueprint(agent_api_bp)
+    app.register_blueprint(reports_bp)
 
     # Register error handlers
     from app.web.routes.auth import register_error_handlers
@@ -136,6 +138,9 @@ def _run_migrations() -> None:
         "ALTER TABLE printers DROP INDEX ip_address",
         # Step 3: composite unique so multiple agents can share IP schemes without collision
         "ALTER TABLE printers ADD UNIQUE KEY uq_printer_ip_agent (ip_address, agent_id)",
+        # --- Reporting feature ---
+        "ALTER TABLE alert_events ADD COLUMN replacement_cost DECIMAL(10,2) NULL",
+        "ALTER TABLE alert_state ADD COLUMN predictive_alert_sent BOOLEAN NOT NULL DEFAULT 0",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
