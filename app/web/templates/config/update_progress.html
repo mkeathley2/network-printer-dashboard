@@ -2,83 +2,309 @@
 {% block title %}Updating…{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center mt-5">
-  <div class="col-md-6 text-center">
+<div class="row justify-content-center">
+  <div class="col-lg-10">
     <div class="card shadow-sm">
-      <div class="card-body py-5">
-        <div class="spinner-border text-primary mb-4" style="width:3rem;height:3rem;" role="status">
-          <span class="visually-hidden">Updating…</span>
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <i class="bi bi-cloud-download me-2"></i>
+          <strong>Applying Update</strong>
         </div>
-        <h5 class="mb-2">Updating — please wait</h5>
-        <p class="text-muted mb-1" id="status-text">Starting update…</p>
-        <p class="text-muted small" id="status-detail">Connecting to GitHub and pulling latest code.</p>
-        <div class="mt-4">
-          <div class="progress" style="height:6px;">
-            <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
-                 style="width:100%"></div>
+        <span id="phase-badge" class="badge bg-primary fs-6">
+          <span class="spinner-border spinner-border-sm me-1" style="width:0.85rem;height:0.85rem;"></span>
+          Starting…
+        </span>
+      </div>
+      <div class="card-body">
+
+        <!-- Step indicators -->
+        <div class="mb-3">
+          <div class="d-flex flex-wrap gap-2" id="step-list">
+            <span class="step-pill" data-step="1"><i class="bi bi-circle"></i> Rollback point saved</span>
+            <span class="step-pill" data-step="2"><i class="bi bi-circle"></i> Fetched latest code</span>
+            <span class="step-pill" data-step="3"><i class="bi bi-circle"></i> Applied new version</span>
+            <span class="step-pill" data-step="4"><i class="bi bi-circle"></i> Rebuilt containers</span>
+            <span class="step-pill" data-step="5"><i class="bi bi-circle"></i> New container healthy</span>
           </div>
         </div>
-        <div id="timeout-warn" class="alert alert-warning mt-4 text-start" style="display:none;">
-          <strong>Taking longer than expected.</strong><br>
-          The update command may have failed silently. Check the container logs:<br>
-          <code>docker compose logs --tail=50 web</code><br>
-          Then try <code>update.sh</code> manually on the server.
+
+        <!-- Overall progress bar -->
+        <div class="progress mb-3" style="height:8px;">
+          <div id="overall-bar"
+               class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
+               style="width:5%;"></div>
+        </div>
+
+        <!-- Current status text -->
+        <p id="status-text" class="text-muted small mb-3">
+          Starting the updater container… the app will briefly restart mid-way through.
+        </p>
+
+        <!-- Live log terminal -->
+        <div class="mb-3">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label mb-0"><i class="bi bi-terminal me-1"></i>Live Output</label>
+            <span class="text-muted small" id="log-connection">connecting…</span>
+          </div>
+          <pre id="log-pane" class="m-0 p-3 border rounded bg-dark text-light"
+               style="height:340px;overflow:auto;font-size:0.78rem;font-family:Menlo,Consolas,monospace;white-space:pre-wrap;"></pre>
+        </div>
+
+        <!-- Final result panels -->
+        <div id="result-success" class="alert alert-success" style="display:none;">
+          <i class="bi bi-check-circle-fill me-2"></i>
+          <strong>Update complete!</strong>
+          Redirecting to the dashboard in a moment…
+        </div>
+        <div id="result-rollback" class="alert alert-warning" style="display:none;">
+          <i class="bi bi-arrow-counterclockwise me-2"></i>
+          <strong>Update failed and was rolled back.</strong>
+          Your previous version is running again. See the log above for details,
+          then return to <a href="{{ url_for('config.index', tab='updates') }}">Updates</a>.
+        </div>
+        <div id="result-fatal" class="alert alert-danger" style="display:none;">
+          <i class="bi bi-exclamation-triangle-fill me-2"></i>
+          <strong>Update failed and rollback could not complete.</strong>
+          The app may not be running. Check the log above and then SSH in and run
+          <code>docker compose up --build -d</code> from the repo directory.
+        </div>
+        <div id="result-noop" class="alert alert-info" style="display:none;">
+          <i class="bi bi-info-circle me-2"></i>
+          Nothing to do — already on the latest version.
+          <a href="{{ url_for('config.index', tab='updates') }}">Back to Updates</a>
         </div>
       </div>
     </div>
   </div>
 </div>
+
+<style>
+  .step-pill {
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: #e9ecef;
+    color: #495057;
+    font-size: 0.82rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .step-pill.done {
+    background: #d1e7dd;
+    color: #0a3622;
+  }
+  .step-pill.active {
+    background: #cfe2ff;
+    color: #052c65;
+    animation: pulse-blue 1.5s ease-in-out infinite;
+  }
+  .step-pill.failed {
+    background: #f8d7da;
+    color: #58151c;
+  }
+  @keyframes pulse-blue {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(13,110,253,0.0); }
+    50%      { box-shadow: 0 0 0 4px rgba(13,110,253,0.18); }
+  }
+</style>
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
-  /**
-   * Correct update-wait logic:
-   *   Phase 1 — WAITING:  app is still up while git pull runs.  Keep polling.
-   *   Phase 2 — DOWN:     docker rebuild killed the old container.  Keep polling.
-   *   Phase 3 — BACK UP:  new container is healthy.  Redirect.
-   *
-   * We must see the app go DOWN before we treat a healthy response as "done".
-   * Without this the progress page bounces back immediately because the old
-   * container is still serving /health while git pull is running.
-   */
-  var wentDown = false;
-  var startTime = Date.now();
-  var MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes before we show a timeout warning
+/**
+ * Progress page poller.
+ * Two data sources:
+ *   • /config/update-log → JSON { logs, status, exit_code } — while dashboard is up
+ *   • /health            → 200 OK  — to detect when the new container is back
+ *
+ * Flow:
+ *   1. Poll /update-log every 1s; render logs, mark steps, watch for exit markers.
+ *   2. When app container rebuilds we'll lose the /update-log endpoint briefly —
+ *      switch to polling /health until it comes back, then resume /update-log.
+ *   3. When updater exits with code 0 and a SUCCESS marker → wait for /health → redirect.
+ *   4. When updater exits with ROLLED_BACK marker → show rollback alert, stay on page.
+ *   5. When updater exits non-zero without rollback success → show fatal alert.
+ */
 
-  var statusEl  = document.getElementById('status-text');
-  var detailEl  = document.getElementById('status-detail');
-  var warnEl    = document.getElementById('timeout-warn');
+(function(){
+  var logPane     = document.getElementById('log-pane');
+  var logConn     = document.getElementById('log-connection');
+  var statusText  = document.getElementById('status-text');
+  var badge       = document.getElementById('phase-badge');
+  var overallBar  = document.getElementById('overall-bar');
+  var stepPills   = {};
+  document.querySelectorAll('.step-pill').forEach(function(el){
+    stepPills[el.dataset.step] = el;
+  });
 
-  function poll() {
-    if (Date.now() - startTime > MAX_WAIT_MS && !wentDown) {
-      // Never went down — likely the update command failed silently
-      warnEl.style.display = '';
+  var lastLogLength = 0;
+  var done          = false;
+  var webWentDown   = false;
+  var lastStep      = 0;
+
+  function setBadge(text, cls) {
+    badge.textContent = '';
+    var spinner = (cls === 'bg-primary' || cls === 'bg-warning');
+    if (spinner) {
+      var s = document.createElement('span');
+      s.className = 'spinner-border spinner-border-sm me-1';
+      s.style.width = '0.85rem'; s.style.height = '0.85rem';
+      badge.appendChild(s);
     }
+    badge.appendChild(document.createTextNode(' ' + text));
+    badge.className = 'badge fs-6 ' + cls;
+  }
 
+  function markStep(n, state) {
+    // state: 'active' | 'done' | 'failed'
+    for (var i = 1; i <= 5; i++) {
+      var p = stepPills[String(i)];
+      if (!p) continue;
+      if (i < n) {
+        p.classList.remove('active', 'failed');
+        p.classList.add('done');
+        p.querySelector('i').className = 'bi bi-check-circle-fill';
+      } else if (i === n) {
+        p.classList.remove('done', 'failed', 'active');
+        if (state === 'done')        { p.classList.add('done');   p.querySelector('i').className = 'bi bi-check-circle-fill'; }
+        else if (state === 'failed') { p.classList.add('failed'); p.querySelector('i').className = 'bi bi-x-circle-fill'; }
+        else                         { p.classList.add('active'); p.querySelector('i').className = 'bi bi-arrow-clockwise'; }
+      }
+    }
+    if (n > lastStep) lastStep = n;
+    var pct = Math.max(5, Math.min(100, n * 20));
+    overallBar.style.width = pct + '%';
+  }
+
+  function parseStepsFromLogs(logs) {
+    // Look for lines like ">>> STEP 3/5 ..." to know where we are.
+    var m = logs.match(/>>> STEP (\d)\/5/g);
+    if (!m || !m.length) return;
+    var last = m[m.length - 1];
+    var num = parseInt(last.match(/STEP (\d)/)[1], 10);
+    if (num > lastStep) {
+      // Mark all previous steps done, current step active
+      markStep(num, 'active');
+    }
+  }
+
+  function appendLogs(logs) {
+    if (logs.length === lastLogLength) return;
+    var newPart = logs.substring(lastLogLength);
+    lastLogLength = logs.length;
+    // Append with auto-scroll if user is near the bottom
+    var nearBottom = (logPane.scrollTop + logPane.clientHeight + 40) >= logPane.scrollHeight;
+    logPane.textContent += newPart;
+    if (nearBottom) logPane.scrollTop = logPane.scrollHeight;
+  }
+
+  function finalizeSuccess() {
+    markStep(5, 'done');
+    overallBar.style.width = '100%';
+    overallBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    overallBar.classList.remove('bg-primary'); overallBar.classList.add('bg-success');
+    setBadge('Success', 'bg-success');
+    statusText.textContent = 'Update applied. Redirecting…';
+    document.getElementById('result-success').style.display = '';
+    done = true;
+    // Final redirect after a brief pause — but only once the new container is serving
+    pollHealthThenRedirect();
+  }
+
+  function finalizeRollback() {
+    markStep(lastStep || 4, 'failed');
+    overallBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    overallBar.classList.remove('bg-primary'); overallBar.classList.add('bg-warning');
+    setBadge('Rolled back', 'bg-warning');
+    statusText.textContent = 'Previous version restored. See log for details.';
+    document.getElementById('result-rollback').style.display = '';
+    done = true;
+  }
+
+  function finalizeFatal() {
+    markStep(lastStep || 4, 'failed');
+    overallBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    overallBar.classList.remove('bg-primary'); overallBar.classList.add('bg-danger');
+    setBadge('Failed', 'bg-danger');
+    statusText.textContent = 'The app may not be running. See log for details.';
+    document.getElementById('result-fatal').style.display = '';
+    done = true;
+  }
+
+  function finalizeNoop() {
+    markStep(2, 'done');
+    overallBar.style.width = '100%';
+    overallBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    overallBar.classList.remove('bg-primary'); overallBar.classList.add('bg-secondary');
+    setBadge('No update needed', 'bg-secondary');
+    statusText.textContent = 'Already running the latest version.';
+    document.getElementById('result-noop').style.display = '';
+    done = true;
+  }
+
+  function pollHealthThenRedirect() {
     fetch('/health', { cache: 'no-store' })
       .then(function(r) {
-        if (!wentDown) {
-          // Still up — git pull is running (or docker rebuild hasn't started yet)
-          statusEl.textContent  = 'Pulling latest code…';
-          detailEl.textContent  = 'Container will restart once the build begins.';
-          setTimeout(poll, 2000);
+        if (r.ok) {
+          setTimeout(function(){ window.location.href = '/'; }, 1500);
         } else {
-          // Was down, now back — new container is ready
-          statusEl.textContent = 'Done! Redirecting…';
-          window.location.href = '/';
+          setTimeout(pollHealthThenRedirect, 2000);
         }
       })
-      .catch(function() {
-        // Unreachable — container is rebuilding
-        wentDown = true;
-        statusEl.textContent = 'Rebuilding container…';
-        detailEl.textContent = 'The old container stopped. Waiting for the new one to start.';
-        setTimeout(poll, 3000);
+      .catch(function() { setTimeout(pollHealthThenRedirect, 2000); });
+  }
+
+  function pollLog() {
+    if (done) return;
+    fetch('/config/update-log', { cache: 'no-store' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('status ' + r.status);
+        return r.json();
+      })
+      .then(function(data) {
+        if (webWentDown) {
+          // app was down — it's back up now
+          logConn.textContent = 'connected';
+          webWentDown = false;
+        }
+        logConn.textContent = 'connected (' + (data.status || '?') + ')';
+        if (data.logs) {
+          appendLogs(data.logs);
+          parseStepsFromLogs(data.logs);
+        }
+        // Check for end-of-run markers in the logs
+        if (/=== UPDATE_SUCCESS/.test(data.logs || '')) {
+          finalizeSuccess(); return;
+        }
+        if (/=== UPDATE_FAILED_ROLLED_BACK ===/.test(data.logs || '')) {
+          finalizeRollback(); return;
+        }
+        if (/=== UPDATE_NOOP ===/.test(data.logs || '')) {
+          finalizeNoop(); return;
+        }
+        if (data.status === 'exited' && data.exit_code !== null && data.exit_code !== 0
+            && !/=== UPDATE_FAILED_ROLLED_BACK ===/.test(data.logs || '')
+            && !/=== UPDATE_NOOP ===/.test(data.logs || '')) {
+          finalizeFatal(); return;
+        }
+        // Still running — keep polling
+        setTimeout(pollLog, 1000);
+      })
+      .catch(function(err) {
+        // Most likely: app container is rebuilding and /update-log is unreachable.
+        webWentDown = true;
+        logConn.textContent = 'dashboard rebuilding…';
+        setBadge('Rebuilding app container…', 'bg-warning');
+        statusText.textContent = 'The app is being rebuilt — this page will resume live logs in a moment.';
+        // Slower poll while down — check more often for recovery
+        setTimeout(pollLog, 2000);
       });
   }
 
-  // Short delay so the POST response finishes before we start polling
-  setTimeout(poll, 2000);
+  // Kick it off
+  setBadge('Starting updater…', 'bg-primary');
+  markStep(1, 'active');
+  pollLog();
+})();
 </script>
 {% endblock %}

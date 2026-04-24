@@ -8,7 +8,7 @@ import os
 import subprocess
 import threading
 
-from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, jsonify, redirect, render_template, request, url_for
 
 logger = logging.getLogger(__name__)
 from flask_login import current_user
@@ -625,18 +625,129 @@ def force_check_update():
     return redirect(url_for("config.index", tab="updates"))
 
 
+UPDATER_CONTAINER_NAME = "printer-dashboard-updater"
+
+# The script that runs inside the updater container.
+# Keep this POSIX-sh compatible (the updater uses Alpine's /bin/sh, not bash).
+# Every informational line is prefixed with a progress marker so the UI can pick it out.
+_UPDATER_SCRIPT = r"""
+set -u
+
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n>>> STEP %s\n' "$*"; }
+fail() { printf '\n!!! %s\n' "$*"; }
+
+say "Installing git and docker compose plugin..."
+apk add --no-cache git docker-cli-compose >/dev/null 2>&1 || {
+    fail "Could not install required packages in updater container"
+    exit 2
+}
+say "  ok"
+
+cd /repo || { fail "Cannot access /repo inside updater container"; exit 2; }
+
+step "1/5 Capturing current version for rollback"
+ROLLBACK_SHA=$(git rev-parse HEAD)
+CUR_VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
+say "  current commit : $ROLLBACK_SHA"
+say "  current version: $CUR_VERSION"
+
+step "2/5 Fetching latest from GitHub"
+if ! git fetch origin; then
+    fail "git fetch failed — aborting, no changes made"
+    exit 1
+fi
+NEW_SHA=$(git rev-parse origin/master)
+if [ "$NEW_SHA" = "$ROLLBACK_SHA" ]; then
+    say "Already at latest commit — nothing to do."
+    printf '\n=== UPDATE_NOOP ===\n'
+    exit 0
+fi
+say "  will update : $ROLLBACK_SHA -> $NEW_SHA"
+
+step "3/5 Applying new code"
+git reset --hard origin/master
+NEW_VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
+say "  new version: $NEW_VERSION"
+
+step "4/5 Rebuilding containers (this is the longest step)"
+if ! docker compose -f /repo/docker-compose.yml up --build -d 2>&1; then
+    fail "BUILD FAILED — rolling back to $ROLLBACK_SHA"
+    git reset --hard "$ROLLBACK_SHA"
+    say "Rebuilding previous version..."
+    docker compose -f /repo/docker-compose.yml up --build -d 2>&1 || fail "ROLLBACK BUILD ALSO FAILED — manual intervention needed"
+    printf '\n=== UPDATE_FAILED_ROLLED_BACK ===\n'
+    exit 1
+fi
+say "  build complete"
+
+step "5/5 Verifying new container is healthy"
+say "  waiting for new app container to become running..."
+sleep 5
+HEALTHY=0
+for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
+    CID=$(docker ps --filter "label=com.docker.compose.service=app" --filter "status=running" --format '{{.ID}}' | head -1)
+    if [ -n "$CID" ]; then
+        # Container is running — give it a few more seconds to bind the port
+        say "  app container running (id=$CID)"
+        HEALTHY=1
+        break
+    fi
+    say "  still waiting... ($i/30)"
+    sleep 2
+done
+
+if [ "$HEALTHY" -ne 1 ]; then
+    fail "New container did not start within 60s — rolling back"
+    git reset --hard "$ROLLBACK_SHA"
+    docker compose -f /repo/docker-compose.yml up --build -d 2>&1 || fail "ROLLBACK BUILD FAILED"
+    printf '\n=== UPDATE_FAILED_ROLLED_BACK ===\n'
+    exit 1
+fi
+
+NEW_VERSION=$(cat VERSION 2>/dev/null || echo "unknown")
+printf '\n=== UPDATE_SUCCESS version=%s ===\n' "$NEW_VERSION"
+exit 0
+"""
+
+
+def _get_host_repo_path() -> str | None:
+    """
+    Ask the Docker daemon where /project/repo is mounted from on the host.
+    We inspect our own container using its hostname (which Docker sets to the
+    short container ID by default).  Returns the host path, or None on failure.
+    """
+    try:
+        hostname = os.environ.get("HOSTNAME") or subprocess.check_output(
+            ["hostname"], timeout=5, text=True
+        ).strip()
+        result = subprocess.run(
+            [
+                "docker", "inspect", hostname, "--format",
+                '{{range .Mounts}}{{if eq .Destination "/project/repo"}}{{.Source}}{{end}}{{end}}',
+            ],
+            capture_output=True, text=True, timeout=10,
+        )
+        path = result.stdout.strip()
+        return path or None
+    except Exception as exc:
+        logger.warning("Could not detect host repo path: %s", exc)
+        return None
+
+
 @bp.route("/apply-update", methods=["POST"])
 @admin_required
 def apply_update():
     """
-    Trigger a git pull + docker compose up --build -d in a background thread.
-    Requires /var/run/docker.sock and /project/repo to be mounted in the container.
-    The container will stop and restart; the browser is redirected to a progress page.
+    Spawn a detached 'updater' container that runs git pull + docker compose.
+    Because the updater lives in its own container, it survives when the app
+    container is recreated — fixing the previous design's fatal self-kill bug.
     """
+    # --- Pre-flight checks ---
     if not os.path.exists("/var/run/docker.sock"):
         flash(
-            "Docker socket is not mounted. Add the volumes below to docker-compose.yml "
-            "and recreate the container before using in-app updates.",
+            "Docker socket is not mounted. Add '- /var/run/docker.sock:/var/run/docker.sock' "
+            "to the 'app' service volumes in docker-compose.yml.",
             "danger",
         )
         return redirect(url_for("config.index", tab="updates"))
@@ -644,65 +755,110 @@ def apply_update():
     if not os.path.isdir("/project/repo/.git"):
         flash(
             "Project directory is not mounted at /project/repo. "
-            "Add '.:/project/repo' to docker-compose.yml volumes.",
+            "Add '- .:/project/repo' to the 'app' service volumes in docker-compose.yml.",
             "danger",
         )
         return redirect(url_for("config.index", tab="updates"))
 
-    def _do_update() -> None:
-        import time
-        try:
-            logger.info("Update started: running git pull…")
-            result = subprocess.run(
-                ["git", "-C", "/project/repo", "pull", "--ff-only", "origin", "master"],
-                timeout=60,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logger.info("git pull output: %s", result.stdout.strip() or "(none)")
-            logger.info("git pull complete; rebuilding container…")
-            time.sleep(1)
+    host_repo_path = _get_host_repo_path()
+    if not host_repo_path:
+        flash(
+            "Could not determine the host path for /project/repo. "
+            "Make sure the Docker socket is mounted and this container has permission to use it.",
+            "danger",
+        )
+        return redirect(url_for("config.index", tab="updates"))
 
-            # Try docker compose (v2 plugin) first, fall back to docker-compose (v1)
-            compose_cmd = None
-            for candidate in [["docker", "compose"], ["docker-compose"]]:
-                try:
-                    subprocess.run(
-                        candidate + ["version"],
-                        capture_output=True, check=True, timeout=5,
-                    )
-                    compose_cmd = candidate
-                    break
-                except Exception:
-                    continue
-            if compose_cmd is None:
-                logger.error("Neither 'docker compose' nor 'docker-compose' found in PATH")
-                return
+    # --- Clean up any leftover updater from a previous run ---
+    try:
+        subprocess.run(
+            ["docker", "rm", "-f", UPDATER_CONTAINER_NAME],
+            capture_output=True, timeout=15,
+        )
+    except Exception:
+        pass
 
-            logger.info("Using compose command: %s", " ".join(compose_cmd))
-            subprocess.run(
-                compose_cmd + ["-f", "/project/repo/docker-compose.yml", "up", "--build", "-d"],
-                timeout=300,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            logger.info("docker compose up launched — container is rebuilding")
-        except subprocess.CalledProcessError as exc:
-            stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode(errors="replace")
-            logger.error("Update failed (exit %s): %s", exc.returncode, stderr.strip())
+    # --- Spawn the updater container (detached) ---
+    try:
+        result = subprocess.run(
+            [
+                "docker", "run", "-d",
+                "--name", UPDATER_CONTAINER_NAME,
+                "--restart", "no",
+                "-v", "/var/run/docker.sock:/var/run/docker.sock",
+                "-v", f"{host_repo_path}:/repo",
+                "docker:cli",
+                "sh", "-c", _UPDATER_SCRIPT,
+            ],
+            capture_output=True, text=True, timeout=60, check=True,
+        )
+        container_id = result.stdout.strip()
+        logger.info("Updater container started: %s", container_id[:12])
+    except subprocess.CalledProcessError as exc:
+        stderr = (exc.stderr or "").strip() or "(no stderr)"
+        logger.error("Failed to start updater container: %s", stderr)
+        flash(f"Could not start the updater: {stderr}", "danger")
+        return redirect(url_for("config.index", tab="updates"))
+    except Exception as exc:
+        logger.exception("Unexpected error starting updater container")
+        flash(f"Could not start the updater: {exc}", "danger")
+        return redirect(url_for("config.index", tab="updates"))
 
-    audit(current_user.username, "app_update", "system", "Triggered in-app update")
-    threading.Thread(target=_do_update, daemon=True).start()
+    audit(current_user.username, "app_update", "system", "Triggered in-app update (updater container)")
     return redirect(url_for("config.update_progress"))
 
 
 @bp.route("/update-progress")
 @admin_required
 def update_progress():
-    """Shown while the container is rebuilding. JS polls /health and redirects when back."""
+    """Shown while the updater is running. JS polls /update-log + /health."""
     return render_template("config/update_progress.html")
+
+
+@bp.route("/update-log")
+@admin_required
+def update_log():
+    """
+    Return the current updater container's logs and runtime status as JSON.
+    The progress page polls this endpoint to stream output to the browser.
+    """
+    try:
+        logs_result = subprocess.run(
+            ["docker", "logs", UPDATER_CONTAINER_NAME],
+            capture_output=True, text=True, timeout=10,
+        )
+        # docker logs writes stdout to stdout and stderr to stderr; combine them
+        logs = (logs_result.stdout or "") + (logs_result.stderr or "")
+
+        state_result = subprocess.run(
+            ["docker", "inspect", "--format",
+             "{{.State.Status}}|{{.State.ExitCode}}",
+             UPDATER_CONTAINER_NAME],
+            capture_output=True, text=True, timeout=5,
+        )
+        state_raw = (state_result.stdout or "").strip()
+        if "|" in state_raw:
+            status, exit_code_str = state_raw.split("|", 1)
+            try:
+                exit_code = int(exit_code_str)
+            except ValueError:
+                exit_code = None
+        else:
+            status, exit_code = "unknown", None
+
+        return jsonify({
+            "logs": logs,
+            "status": status,           # created / running / exited / etc
+            "exit_code": exit_code,     # None while running, int after exit
+        })
+    except Exception as exc:
+        logger.debug("update_log error: %s", exc)
+        return jsonify({
+            "logs": "",
+            "status": "unavailable",
+            "exit_code": None,
+            "error": str(exc),
+        }), 200  # return 200 so the frontend keeps polling when docker is briefly unreachable
 
 
 # ---------------------------------------------------------------------------
