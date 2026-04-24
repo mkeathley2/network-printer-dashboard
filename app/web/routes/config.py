@@ -540,6 +540,15 @@ def export_activity_log():
 # ---------------------------------------------------------------------------
 # In-app update
 # ---------------------------------------------------------------------------
+@bp.route("/force-check-update")
+@admin_required
+def force_check_update():
+    """Bust the GitHub release cache so the Updates tab shows the freshest data."""
+    from app.utils.version import get_latest_release
+    get_latest_release(force_refresh=True)
+    return redirect(url_for("config.index", tab="updates"))
+
+
 @bp.route("/apply-update", methods=["POST"])
 @admin_required
 def apply_update():
