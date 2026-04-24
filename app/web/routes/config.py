@@ -147,13 +147,12 @@ def index():
         "min_points": int(_get_setting("predictive_toner_min_points", "5")),
     }
 
-    # Updates tab
-    current_version = "unknown"
+    # Updates tab (current_version always loaded — also used by agents tab for version badge)
+    from app.utils.version import get_current_version, get_latest_release, update_available
+    current_version = get_current_version()
     latest_release = None
     has_update = False
     if tab == "updates":
-        from app.utils.version import get_current_version, get_latest_release, update_available
-        current_version = get_current_version()
         latest_release = get_latest_release()
         has_update = update_available()
 
@@ -814,6 +813,48 @@ def agent_set_interval(agent_id: int):
     audit(current_user.username, "agent_interval", agent.name,
           f"Set scan interval to {minutes} min for agent '{agent.name}'")
     flash(f"Scan interval set to {minutes} min — pushed to agent on next check-in.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/<int:agent_id>/set-subnet", methods=["POST"])
+@admin_required
+def agent_set_subnet(agent_id: int):
+    import json
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    subnet = request.form.get("subnet", "").strip()
+    agent.subnet = subnet or None
+    agent.pending_command = "config"
+    agent.pending_command_config = json.dumps(
+        {"subnets": [subnet] if subnet else []}
+    )
+    db.session.commit()
+    audit(current_user.username, "agent_subnet", agent.name,
+          f"Set subnet to '{subnet or '(auto)'}' for agent '{agent.name}'")
+    if subnet:
+        flash(f"Subnet set to '{subnet}' — pushed to agent on next check-in.", "success")
+    else:
+        flash("Subnet cleared — agent will auto-detect on next scan.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+@bp.route("/agents/update-all", methods=["POST"])
+@admin_required
+def agent_update_all():
+    from app.utils.version import get_current_version
+    current_ver = get_current_version()
+    agents = db.session.query(RemoteAgent).filter(
+        RemoteAgent.agent_version != current_ver,
+        RemoteAgent.agent_version.isnot(None),
+    ).all()
+    count = 0
+    for agent in agents:
+        if agent.pending_command is None:
+            agent.pending_command = "update"
+            count += 1
+    db.session.commit()
+    audit(current_user.username, "agent_update_all", "all",
+          f"Queued update for {count} outdated agent(s)")
+    flash(f"Update queued for {count} outdated agent(s).", "success" if count else "info")
     return redirect(url_for("config.index", tab="agents"))
 
 

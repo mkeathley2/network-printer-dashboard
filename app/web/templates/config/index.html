@@ -1026,7 +1026,19 @@ function confirmReset(form) {
 
     <!-- Agents table -->
     <div class="card">
-      <div class="card-header fw-semibold">Registered Agents</div>
+      <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+        <span>Registered Agents</span>
+        {% set outdated_agents = agents | selectattr('agent_version') | rejectattr('agent_version', 'equalto', current_version) | list %}
+        {% if outdated_agents %}
+        <form method="POST" action="{{ url_for('config.agent_update_all') }}" class="d-inline">
+          <button type="submit" class="btn btn-sm btn-warning py-0"
+                  title="Queue update for all {{ outdated_agents | length }} outdated agent(s)">
+            <i class="bi bi-arrow-repeat me-1"></i>Update All Outdated
+            <span class="badge bg-dark ms-1">{{ outdated_agents | length }}</span>
+          </button>
+        </form>
+        {% endif %}
+      </div>
       {% if agents %}
       <div class="table-responsive">
         <table class="table table-sm table-hover align-middle mb-0">
@@ -1073,8 +1085,19 @@ function confirmReset(form) {
               <td class="text-muted small">
                 {{ agent.last_checkin_at | localtime if agent.last_checkin_at else 'Never' }}
               </td>
-              <td class="text-muted small">{{ agent.agent_version or '—' }}</td>
-              <td class="text-muted small">{{ agent.subnet or '—' }}</td>
+              <td class="text-muted small">
+                {{ agent.agent_version or '—' }}
+                {% if agent.agent_version and agent.agent_version != current_version %}
+                  <span class="badge bg-warning text-dark ms-1" title="Expected {{ current_version }}">Outdated</span>
+                {% endif %}
+              </td>
+              <td class="text-muted small">
+                {% if agent.subnet %}
+                  <code>{{ agent.subnet }}</code>
+                {% else %}
+                  <em class="text-muted">auto-detect</em>
+                {% endif %}
+              </td>
               <td>
                 <div class="d-flex flex-wrap gap-1">
                   <!-- Rescan Now -->
@@ -1099,6 +1122,13 @@ function confirmReset(form) {
                           data-bs-target="#interval-{{ agent.id }}"
                           title="Edit Scan Interval">
                     <i class="bi bi-clock"></i>
+                  </button>
+                  <!-- Edit Subnet button → collapse -->
+                  <button class="btn btn-sm btn-outline-secondary py-0 px-1"
+                          data-bs-toggle="collapse"
+                          data-bs-target="#subnet-{{ agent.id }}"
+                          title="Edit Subnet">
+                    <i class="bi bi-diagram-3"></i>
                   </button>
                   <!-- Set Location button → collapse -->
                   <button class="btn btn-sm btn-outline-secondary py-0 px-1"
@@ -1145,6 +1175,16 @@ function confirmReset(form) {
                     <input type="number" name="scan_interval_minutes" class="form-control form-control-sm"
                            value="{{ agent.scan_interval_minutes }}" min="1" max="1440" style="width:80px;">
                     <span class="small text-muted">min</span>
+                    <button type="submit" class="btn btn-sm btn-primary py-0">Save</button>
+                  </form>
+                </div>
+                <!-- Inline subnet editor -->
+                <div class="collapse mt-1" id="subnet-{{ agent.id }}">
+                  <form method="POST" action="{{ url_for('config.agent_set_subnet', agent_id=agent.id) }}"
+                        class="d-flex gap-1 align-items-center">
+                    <input type="text" name="subnet" class="form-control form-control-sm"
+                           placeholder="192.168.1.0/24 (blank = auto-detect)"
+                           value="{{ agent.subnet or '' }}" style="min-width:220px;">
                     <button type="submit" class="btn btn-sm btn-primary py-0">Save</button>
                   </form>
                 </div>

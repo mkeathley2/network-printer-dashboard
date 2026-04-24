@@ -61,6 +61,20 @@ def checkin():
     agent.last_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
     if data.get("agent_version"):
         agent.agent_version = data["agent_version"][:32]
+        # Auto-queue update if agent is outdated and no other command is pending
+        try:
+            from app.utils.version import get_current_version
+            current_ver = get_current_version()
+            if (current_ver != "unknown"
+                    and agent.agent_version != current_ver
+                    and agent.pending_command is None):
+                agent.pending_command = "update"
+                logger.info(
+                    "Agent '%s' is %s, dashboard is %s — queuing auto-update",
+                    agent.name, agent.agent_version, current_ver,
+                )
+        except Exception:
+            pass
     if data.get("subnet"):
         agent.subnet = data["subnet"][:64]
     agent.status = "active"
@@ -138,12 +152,14 @@ def checkin():
 
     # --- Build response ---
     resp: dict = {"status": "ok", "command": cmd}
+    try:
+        from app.utils.version import get_current_version
+        resp["latest_version"] = get_current_version()
+    except Exception:
+        pass
     if cmd == "update":
-        try:
-            from app.utils.version import get_current_version
-            resp["version"] = get_current_version()
-        except Exception:
-            pass
+        # Keep "version" key for backward compatibility with older agents
+        resp["version"] = resp.get("latest_version", "unknown")
     elif cmd == "config" and cmd_config:
         resp["config"] = cmd_config
 

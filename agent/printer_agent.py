@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: 1.0.0
+Version: v0.0.7
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -78,7 +78,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "1.0.0"
+AGENT_VERSION = "v0.0.7"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -114,6 +114,106 @@ COLOR_MAP = {
     "magenta": "magenta", "m": "magenta",
     "yellow": "yellow", "y": "yellow",
 }
+
+
+# ---------------------------------------------------------------------------
+# Subnet auto-detection helpers
+# ---------------------------------------------------------------------------
+
+def _get_local_ip() -> Optional[str]:
+    """Get the outbound local IP using the socket trick (no data is actually sent)."""
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 53))
+        return s.getsockname()[0]
+    except Exception:
+        return None
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
+
+
+def _get_subnet_mask_for_ip(ip: str) -> Optional[str]:
+    """
+    Parse the subnet mask for the given local IP from the OS.
+
+    Windows: parses ``ipconfig`` output for the adapter section containing *ip*,
+             returns a dotted-decimal mask string (e.g. "255.255.255.0").
+    Linux/Pi: parses ``ip addr show`` CIDR notation for the interface carrying *ip*
+              and converts to a dotted-decimal mask string.
+
+    Returns None if the mask cannot be determined.
+    """
+    system = platform.system()
+    if system == "Windows":
+        try:
+            out = subprocess.check_output(
+                ["ipconfig"], encoding="utf-8", errors="ignore", timeout=5
+            )
+            lines = out.splitlines()
+            found_ip = False
+            for line in lines:
+                if ip in line:
+                    found_ip = True
+                if found_ip and "Subnet Mask" in line:
+                    parts = line.split(":")
+                    if len(parts) >= 2:
+                        return parts[-1].strip()
+        except Exception:
+            pass
+    else:
+        try:
+            out = subprocess.check_output(
+                ["ip", "addr", "show"], encoding="utf-8", errors="ignore", timeout=5
+            )
+            for line in out.splitlines():
+                line = line.strip()
+                if line.startswith("inet ") and ip in line:
+                    parts = line.split()
+                    cidr_ip = parts[1]  # e.g. "192.168.1.5/24"
+                    if "/" in cidr_ip:
+                        prefix = int(cidr_ip.split("/")[1])
+                        mask_int = (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF
+                        return ".".join(
+                            str((mask_int >> (8 * i)) & 0xFF) for i in [3, 2, 1, 0]
+                        )
+        except Exception:
+            pass
+    return None
+
+
+def detect_local_subnet() -> Optional[str]:
+    """
+    Detect the local subnet as a CIDR string (e.g. ``'192.168.1.0/24'``).
+
+    Uses the socket trick to find the outbound IP, then queries the OS for the
+    actual subnet mask.  Falls back to a /24 assumption if the mask cannot be
+    read.  Returns None only if the local IP itself cannot be determined.
+    """
+    ip = _get_local_ip()
+    if not ip:
+        logger.warning("Subnet auto-detection: could not determine local IP")
+        return None
+
+    mask = _get_subnet_mask_for_ip(ip)
+    if mask:
+        try:
+            network = ipaddress.IPv4Network(f"{ip}/{mask}", strict=False)
+            return str(network)
+        except Exception:
+            pass  # fall through to /24 fallback
+
+    # Fallback: assume /24
+    parts = ip.split(".")
+    if len(parts) == 4:
+        fallback = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+        logger.info("Subnet mask unavailable — falling back to /24: %s", fallback)
+        return fallback
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +551,13 @@ def checkin(printers: list[dict], errors: list[dict], cfg: dict) -> Optional[str
         command = data.get("command")
         if command:
             logger.info("Received command from dashboard: %s", command)
+        # Log version mismatch (actual update is triggered by command == "update")
+        latest_version = data.get("latest_version")
+        if latest_version and latest_version != AGENT_VERSION:
+            logger.info(
+                "Dashboard version: %s  Agent version: %s — update will be applied",
+                latest_version, AGENT_VERSION,
+            )
         # Handle config command: update local config
         if command == "config" and "config" in data:
             for k, v in data["config"].items():
@@ -596,10 +703,22 @@ def run_once(cfg: dict) -> None:
     snmp_timeout = cfg.get("snmp_timeout", 3)
     snmp_retries = cfg.get("snmp_retries", 1)
 
+    subnets = cfg.get("subnets", [])
+    if not subnets:
+        detected = detect_local_subnet()
+        if detected:
+            logger.info("No subnet configured — auto-detected: %s", detected)
+            subnets = [detected]
+            cfg["subnets"] = subnets
+            save_config(cfg)
+        else:
+            logger.error("No subnet configured and auto-detection failed — skipping scan")
+            return
+
     all_printers: list[dict] = []
     all_errors: list[dict] = []
 
-    for subnet in cfg.get("subnets", []):
+    for subnet in subnets:
         live_ips = discover_subnet(subnet, community, timeout=1, max_concurrent=50)
         logger.info("Found %d SNMP-responsive hosts in %s", len(live_ips), subnet)
 
