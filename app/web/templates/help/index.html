@@ -1,0 +1,471 @@
+{% extends "base.html" %}
+{% block title %}Help — Printer Dashboard{% endblock %}
+
+{% block extra_head %}
+<style>
+  .help-toc { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }
+  .help-toc .nav-link { padding: .25rem .75rem; font-size: .9rem; }
+  .help-toc .nav-link.admin-only { color: #b02a37; }
+  .help-section { scroll-margin-top: 1rem; }
+  .help-section h2 { border-bottom: 1px solid #dee2e6; padding-bottom: .35rem; margin-top: 2rem; }
+  .help-section h3 { margin-top: 1.25rem; color: #495057; }
+  .help-section p, .help-section li { line-height: 1.55; }
+  .help-section pre { background: #f1f3f5; padding: .7rem 1rem; border-radius: .35rem; font-size: .82rem; }
+  .help-section code { background: #f1f3f5; padding: .1rem .35rem; border-radius: .2rem; font-size: .85em; }
+  .help-section pre code { background: transparent; padding: 0; }
+  .admin-tag { font-size: .7rem; vertical-align: middle; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- Sidebar TOC -->
+  <div class="col-lg-3">
+    <div class="help-toc">
+      <div class="fw-semibold mb-2"><i class="bi bi-book me-1"></i>User Manual</div>
+      <nav class="nav flex-column">
+        <a class="nav-link" href="#getting-started">1. Getting Started</a>
+        <a class="nav-link" href="#dashboard">2. Dashboard Overview</a>
+        <a class="nav-link" href="#printers">3. Managing Printers</a>
+        <a class="nav-link" href="#alerts">4. Supply Levels &amp; Alerts</a>
+        <a class="nav-link" href="#reports">5. Reports</a>
+        {% if current_user.is_admin %}
+        <a class="nav-link admin-only" href="#agents">6. Remote Agents <span class="badge bg-danger admin-tag">Admin</span></a>
+        {% endif %}
+        <a class="nav-link" href="#users">7. User Accounts &amp; Security</a>
+        {% if current_user.is_admin %}
+        <a class="nav-link admin-only" href="#admin-config">8. Admin Configuration <span class="badge bg-danger admin-tag">Admin</span></a>
+        {% endif %}
+        <a class="nav-link" href="#troubleshooting">9. Troubleshooting / FAQ</a>
+      </nav>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="col-lg-9">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+
+        <div class="d-flex align-items-center mb-3">
+          <i class="bi bi-question-circle-fill fs-2 text-primary me-3"></i>
+          <div>
+            <h3 class="mb-0">Printer Dashboard — User Manual</h3>
+            <div class="text-muted small">
+              Signed in as <strong>{{ current_user.username }}</strong>
+              {% if current_user.is_admin %}<span class="badge bg-danger">Admin</span>{% else %}<span class="badge bg-secondary">Viewer</span>{% endif %}
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== 1. GETTING STARTED ========== -->
+        <section id="getting-started" class="help-section">
+          <h2>1. Getting Started</h2>
+          <p>
+            The Printer Dashboard watches your networked printers in real time, tracks toner and drum
+            supply levels, records page counts, and alerts you (via email) when something needs attention.
+            Everything you need is available from the navigation bar at the top of every page.
+          </p>
+
+          <h3>Top navigation</h3>
+          <ul>
+            <li><strong>Dashboard</strong> — live overview of every active printer</li>
+            <li><strong>Discover</strong> — scan a subnet to find printers to add</li>
+            <li><strong>Alerts</strong> — chronological log of every alert ever raised</li>
+            <li><strong>Reports</strong> — six analytical reports with CSV export</li>
+            {% if current_user.is_admin %}
+            <li><strong>Config</strong> <span class="badge bg-danger admin-tag">Admin</span> — all settings live here</li>
+            {% endif %}
+          </ul>
+
+          <h3>Your account menu</h3>
+          <p>
+            Click your username in the top-right corner to open the account menu. From there you can
+            <strong>Change Password</strong>, open this <strong>Help</strong> page, or <strong>Log out</strong>.
+          </p>
+
+          <div class="alert alert-info py-2">
+            <i class="bi bi-lightbulb me-1"></i>
+            <strong>Tip:</strong> If an admin creates your account with an email address, you'll receive
+            a welcome email with a temporary password. The first time you log in, you'll be required
+            to set a new password before you can access any other page.
+          </div>
+        </section>
+
+        <!-- ========== 2. DASHBOARD OVERVIEW ========== -->
+        <section id="dashboard" class="help-section">
+          <h2>2. Dashboard Overview</h2>
+          <p>
+            The Dashboard shows every active printer as a tile. Each tile summarizes the printer's
+            current status and its lowest supply level.
+          </p>
+
+          <h3>Status dots</h3>
+          <ul>
+            <li><span class="status-dot status-online"></span><strong>Green</strong> — printer is online and responding to SNMP</li>
+            <li><span class="status-dot status-offline"></span><strong>Red</strong> — printer is offline (missed several polls)</li>
+            <li><span class="status-dot status-unknown"></span><strong>Gray</strong> — not yet polled or status unknown</li>
+          </ul>
+
+          <h3>Supply bars</h3>
+          <ul>
+            <li><span class="supply-ok">Green</span> — above the warning threshold (healthy)</li>
+            <li><span class="supply-warning">Orange</span> — below warning threshold</li>
+            <li><span class="supply-critical">Red</span> — below critical threshold</li>
+          </ul>
+
+          <h3>Filter bar</h3>
+          <p>
+            Above the tiles, use the filter pills to narrow down by <strong>location</strong>,
+            <strong>status</strong>, or search by name. Filters stack — picking a location and
+            "online only" shows only online printers at that location.
+          </p>
+        </section>
+
+        <!-- ========== 3. MANAGING PRINTERS ========== -->
+        <section id="printers" class="help-section">
+          <h2>3. Managing Printers</h2>
+
+          <h3>Adding a printer {% if not current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            Admin users click a printer tile → the printer detail page opens. To add a new one,
+            use <strong>Discover</strong> to scan a subnet OR click "Add Printer" from the printer list page.
+            You provide the IP address, optionally a display name, and the SNMP community string
+            (usually <code>public</code>). The first poll runs automatically.
+          </p>
+
+          <h3>The printer detail page</h3>
+          <p>Everything you need is on one page:</p>
+          <ul>
+            <li><strong>Asset info</strong> — display name, IP, vendor, model, serial, assigned person, SQL number, phone ext., web login credentials</li>
+            <li><strong>Supply Levels</strong> — live bars for every toner, drum, or ink cartridge</li>
+            <li><strong>Toner Replacement History</strong> — every time a cartridge was swapped, with an admin-editable cost field</li>
+            <li><strong>History charts</strong> — page count and supply levels over time</li>
+            <li><strong>Recent alerts</strong> — the last dozen alerts raised for this printer</li>
+          </ul>
+
+          <h3>Actions available on the detail page</h3>
+          <ul>
+            <li><strong>Poll Now</strong> — force an immediate SNMP poll instead of waiting for the scheduler</li>
+            <li><strong>Resend Alerts</strong> — clear dedup flags so active warnings are re-emailed on the next poll (admin only)</li>
+            <li><strong>Create Helpdesk Ticket</strong> — email a ticket to the configured helpdesk address</li>
+            <li><strong>Set Thresholds</strong> — override the site-wide warning/critical percentages for this one printer (admin only)</li>
+            <li><strong>Remove Printer</strong> — soft-delete. Printer data is kept; printer can be restored from Config → Removed Printers (admin only)</li>
+          </ul>
+        </section>
+
+        <!-- ========== 4. ALERTS ========== -->
+        <section id="alerts" class="help-section">
+          <h2>4. Supply Levels &amp; Alerts</h2>
+
+          <h3>How supply levels are read</h3>
+          <p>
+            Every poll, the dashboard queries each printer's SNMP supply table. Level is reported as a
+            percentage of capacity. Some older printers only report a raw count vs. max — the dashboard
+            converts that to a percentage automatically.
+          </p>
+
+          <h3>Warning vs. Critical thresholds</h3>
+          <p>
+            Default thresholds are <strong>15%</strong> (warning) and <strong>5%</strong> (critical). When a
+            supply crosses below warning for the first time, a warning email is sent. When it later crosses
+            critical, a critical email is sent. Each email is sent <strong>once per supply lifecycle</strong>
+            — a new cartridge install resets the flags so the cycle starts over.
+          </p>
+
+          <h3>Toner replacement detection</h3>
+          <p>
+            When the supply level jumps upward significantly (e.g. 3% → 98%), the system records a
+            <code>toner_replaced</code> event. You can enter the cost of the replacement from the
+            printer detail page so it flows into the Toner Cost report.
+          </p>
+
+          <h3>Offline alerts</h3>
+          <p>
+            If a printer fails to respond to the scheduled poll several times in a row (default: 3
+            consecutive misses), it's marked offline and an offline alert email is sent. When it responds
+            again, a back-online email is sent.
+          </p>
+
+          <div class="alert alert-secondary py-2">
+            <i class="bi bi-envelope me-1"></i>
+            <strong>Emails only send if SMTP is configured.</strong> If you're not getting alert emails,
+            start with <em>Config → Email / SMTP</em> and send a test email from that page.
+          </div>
+        </section>
+
+        <!-- ========== 5. REPORTS ========== -->
+        <section id="reports" class="help-section">
+          <h2>5. Reports</h2>
+          <p>
+            The <strong>Reports</strong> tab (top nav) has six pre-built reports. All are visible to
+            every signed-in user. Each report has a filter bar (date range, printer, etc.), a chart,
+            a sortable table, and a <strong>Download CSV</strong> button for exporting the underlying data.
+          </p>
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-bar-chart text-primary"></i> <strong>Print Volume</strong>
+                <p class="small mb-0 mt-1">Pages printed per printer in a date range. Group by printer, person, or location.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-graph-up text-primary"></i> <strong>Page Count Over Time</strong>
+                <p class="small mb-0 mt-1">Multi-line chart of cumulative page count per printer over time.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-cash-coin text-primary"></i> <strong>Toner Cost</strong>
+                <p class="small mb-0 mt-1">Every toner replacement with the cost you entered. Totals by printer and color.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-calculator text-primary"></i> <strong>Cost Per Page</strong>
+                <p class="small mb-0 mt-1">Total toner cost ÷ total pages printed. The printer efficiency metric.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-droplet-half text-primary"></i> <strong>Consumption Rate</strong>
+                <p class="small mb-0 mt-1">How fast each supply depletes (% per day), with projected days remaining.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-shield-exclamation text-primary"></i> <strong>Reliability</strong>
+                <p class="small mb-0 mt-1">Offline event counts per printer. Higher numbers = more unreliable printer.</p>
+              </div>
+            </div>
+          </div>
+
+          <h3 class="mt-3">Entering replacement costs</h3>
+          <p>
+            Admin: open a printer detail page, scroll to <strong>Toner Replacement History</strong>,
+            and fill in the <em>Cost</em> field for a replacement row. The cost immediately flows into
+            the Toner Cost and Cost Per Page reports.
+          </p>
+        </section>
+
+        {% if current_user.is_admin %}
+        <!-- ========== 6. REMOTE AGENTS (admin only) ========== -->
+        <section id="agents" class="help-section">
+          <h2>6. Remote Agents <span class="badge bg-danger admin-tag">Admin</span></h2>
+          <p>
+            A <strong>Remote Agent</strong> is a small background service running on a machine at another
+            site. It scans the local subnet for printers and reports back to this central dashboard over
+            HTTPS — no VPN or port-forwarding required. Use agents when you need to monitor printers on
+            networks the dashboard server can't reach directly.
+          </p>
+
+          <h3>Adding an agent</h3>
+          <ol>
+            <li>Go to <strong>Config → Remote Agents</strong>.</li>
+            <li>Enter a name (a Location with the same name is auto-created).</li>
+            <li>Optionally enter a subnet — leave blank to have the agent auto-detect its own.</li>
+            <li>Click <strong>Create Agent</strong>.</li>
+            <li>Copy the Windows PowerShell or Raspberry Pi bash one-liner displayed.</li>
+            <li>Paste it into an <em>elevated</em> PowerShell (Windows) or shell (Pi) on the remote machine.</li>
+          </ol>
+
+          <h3>Managing agents</h3>
+          <p>Each agent row in the table has action buttons:</p>
+          <ul>
+            <li><i class="bi bi-arrow-clockwise"></i> <strong>Rescan Now</strong> — tell the agent to scan immediately</li>
+            <li><i class="bi bi-cloud-download"></i> <strong>Force Update</strong> — push the latest agent script</li>
+            <li><i class="bi bi-clock"></i> <strong>Edit Interval</strong> — change scan frequency</li>
+            <li><i class="bi bi-diagram-3"></i> <strong>Edit Subnet</strong> — push a new subnet (blank = auto-detect)</li>
+            <li><i class="bi bi-geo-alt"></i> <strong>Assign Location</strong></li>
+            <li><i class="bi bi-key"></i> <strong>Regenerate API Key</strong></li>
+            <li><i class="bi bi-trash"></i> <strong>Delete</strong> — queues uninstall on next check-in</li>
+          </ul>
+
+          <h3>Auto-update</h3>
+          <p>
+            When the dashboard and an agent fall out of version sync, the dashboard auto-queues an
+            update command on the next check-in. The agent downloads the new script and restarts
+            itself via its scheduled task / systemd service. An <strong>Outdated</strong> badge
+            appears in the Version column, and a <strong>Update All Outdated</strong> button in the
+            agents card header lets you push updates to multiple agents at once.
+          </p>
+
+          <h3>Manually triggering a check-in</h3>
+          <p>On the remote machine:</p>
+          <pre><code># Windows
+Start-ScheduledTask -TaskName "PrinterAgent"
+
+# Linux / Raspberry Pi
+sudo systemctl restart printer-agent</code></pre>
+        </section>
+        {% endif %}
+
+        <!-- ========== 7. USER ACCOUNTS & SECURITY ========== -->
+        <section id="users" class="help-section">
+          <h2>7. User Accounts &amp; Security</h2>
+
+          <h3>Roles</h3>
+          <ul>
+            <li><span class="badge bg-secondary">Viewer</span> — read-only. Can see all printers, reports, and alerts. Cannot edit anything.</li>
+            <li><span class="badge bg-danger">Admin</span> — full access. Can add/edit/remove printers, manage users, change settings, apply updates.</li>
+          </ul>
+
+          <h3>Temporary passwords &amp; forced change</h3>
+          <p>
+            When an admin creates a new user (or resets an existing user's password via <em>Send Reset Email</em>),
+            the system generates a random temporary password. On first login with that password, the user is
+            redirected to a <strong>Set Your Password</strong> page and cannot access any other page until
+            they choose a new password (minimum 8 characters).
+          </p>
+
+          <h3>Changing your own password</h3>
+          <p>
+            Click your username in the top-right → <strong>Change Password</strong>. You'll need to enter
+            your current password to confirm.
+          </p>
+
+          {% if current_user.is_admin %}
+          <h3>Resetting another user's password <span class="badge bg-danger admin-tag">Admin</span></h3>
+          <p>Go to <strong>Config → Users</strong>. For each user you have two options:</p>
+          <ul>
+            <li><strong>Send Reset Email</strong> — generates a new temp password, emails it to the user, forces change on next login. Requires an email address on file.</li>
+            <li><strong>Manual set</strong> — type a password and click Set. Use this if the user has no email address or you need immediate offline access.</li>
+          </ul>
+          {% endif %}
+        </section>
+
+        {% if current_user.is_admin %}
+        <!-- ========== 8. ADMIN CONFIGURATION (admin only) ========== -->
+        <section id="admin-config" class="help-section">
+          <h2>8. Admin Configuration <span class="badge bg-danger admin-tag">Admin</span></h2>
+          <p>Everything below lives under <strong>Config</strong> (the gear icon in the top nav).</p>
+
+          <h3>Email / SMTP</h3>
+          <p>
+            Configure the outgoing mail server. Three auth modes are supported: STARTTLS (port 587 — most common),
+            SSL/TLS (port 465), and None (local relay). Send a test email from this tab to verify.
+          </p>
+          <p>
+            <strong>Alert-To</strong> is where all alert emails go. <strong>Helpdesk email</strong> is where
+            manually-created tickets (from a printer's detail page) are sent.
+          </p>
+
+          <h3>Thresholds</h3>
+          <p>
+            Set the site-wide warning and critical percentages for supply level alerts. Any printer can
+            override these from its detail page.
+          </p>
+
+          <h3>Predictive Toner Alerts</h3>
+          <p>
+            When enabled, a scheduled job runs hourly and uses linear regression on recent supply-level
+            readings to predict when each cartridge will run out. If predicted to be empty within N days
+            (default 7), a helpdesk ticket is auto-generated — once per supply lifecycle. Set the days
+            threshold and minimum data-point count from the Alert Settings tab.
+          </p>
+
+          <h3>Locations</h3>
+          <p>
+            Tag each printer with a location. Locations power the filter bar on the dashboard and the
+            grouping options in reports.
+          </p>
+
+          <h3>Import</h3>
+          <p>
+            Upload an .xlsx spreadsheet to pre-populate printer asset fields (assigned person, SQL number,
+            location, etc.). Rows match printers by IP. Pending records are applied to existing printers
+            or auto-filled when a new printer with a matching IP is added.
+          </p>
+
+          <h3>In-App Updates</h3>
+          <p>
+            The <strong>Updates</strong> tab compares the running version against the latest GitHub
+            release. If behind, a single click rebuilds the container in place. The updater runs as a
+            separate container, so the app rebuild doesn't kill the update process.
+          </p>
+          <p>
+            <strong>Auto-rollback:</strong> if the build fails or the new container doesn't come online,
+            the updater reverts to the previous commit and rebuilds. Live logs are streamed to the
+            progress page.
+          </p>
+
+          <h3>Activity Log</h3>
+          <p>
+            Every administrative action is recorded with timestamp, username, action type, target, and
+            detail. Retained for 30 days. Exportable as CSV.
+          </p>
+
+          <h3>Backup / Reset</h3>
+          <p>
+            Download a SQL dump of the full database, or reset the instance to factory defaults.
+          </p>
+        </section>
+        {% endif %}
+
+        <!-- ========== 9. TROUBLESHOOTING / FAQ ========== -->
+        <section id="troubleshooting" class="help-section">
+          <h2>9. Troubleshooting / FAQ</h2>
+
+          <h3>I'm not getting alert emails</h3>
+          <ol>
+            <li>Check <strong>Config → Email / SMTP</strong> and send a test email.</li>
+            <li>Verify the <strong>Alert-To</strong> address is set.</li>
+            <li>Check the individual alert toggles under <strong>Config → Alert Settings</strong>.</li>
+            <li>If using Gmail, make sure you're using an App Password, not your regular password.</li>
+          </ol>
+
+          <h3>A printer shows as "offline" but I know it's online</h3>
+          <ol>
+            <li>Check that SNMP is enabled on the printer (some vendors ship it disabled).</li>
+            <li>Verify the community string matches (usually <code>public</code>).</li>
+            <li>Make sure the dashboard server can reach the printer IP (no firewall blocking UDP/161).</li>
+            <li>Click <strong>Poll Now</strong> on the printer detail page to try again.</li>
+          </ol>
+
+          {% if current_user.is_admin %}
+          <h3>A remote agent shows "Outdated" but never updates</h3>
+          <p>
+            Log into the agent machine and trigger a check-in manually (see section 6 above). The agent
+            will receive the queued update command on the next successful check-in.
+          </p>
+
+          <h3>I clicked Update but the page never finished</h3>
+          <p>
+            The updater streams live logs — watch them carefully. If the build fails, auto-rollback
+            kicks in and restores the previous version. If the rollback also fails, SSH into the VM
+            and run <code>docker compose up --build -d</code> from the repo directory.
+          </p>
+
+          <h3>I get "SMTP not configured" but I already filled in settings</h3>
+          <p>
+            Check that all four fields (host, port, user, password) are filled <em>and</em> the auth
+            mode is set correctly. If you set auth to "None", only the host field is required. If you
+            changed settings in the UI, the new values take effect immediately — no restart required.
+          </p>
+          {% endif %}
+
+          <h3>How often are printers polled?</h3>
+          <p>
+            Default is every 60 minutes. {% if current_user.is_admin %}Change it at <strong>Config → Thresholds → Poll interval</strong>.{% endif %}
+            Remote-agent printers are polled on the agent's own interval.
+          </p>
+
+          <h3>How long is data kept?</h3>
+          <p>
+            Telemetry and supply snapshots are kept indefinitely (small rows, small cost). Alerts are
+            kept indefinitely too. The activity log auto-prunes at 30 days.
+          </p>
+        </section>
+
+        <div class="text-center text-muted small mt-5 pt-3 border-top">
+          <i class="bi bi-book me-1"></i>Printer Dashboard User Manual
+          — for more info or to report an issue, check the
+          <a href="https://github.com/mkeathley2/network-printer-dashboard" target="_blank">GitHub repository</a>.
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

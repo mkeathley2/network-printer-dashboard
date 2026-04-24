@@ -58,6 +58,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     from app.web.routes.config import bp as config_bp
     from app.web.routes.agent_api import bp as agent_api_bp
     from app.web.routes.reports import bp as reports_bp
+    from app.web.routes.help import bp as help_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -69,6 +70,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
     app.register_blueprint(config_bp)
     app.register_blueprint(agent_api_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(help_bp)
 
     # Register error handlers
     from app.web.routes.auth import register_error_handlers
