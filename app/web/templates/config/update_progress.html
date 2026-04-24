@@ -10,16 +10,19 @@
           <span class="visually-hidden">Updating…</span>
         </div>
         <h5 class="mb-2">Updating — please wait</h5>
-        <p class="text-muted mb-1">
-          The app is pulling the latest code and rebuilding.<br>
-          This usually takes <strong>30–90 seconds</strong>.
-        </p>
-        <p class="text-muted small">You will be redirected automatically when the app is ready.</p>
+        <p class="text-muted mb-1" id="status-text">Starting update…</p>
+        <p class="text-muted small" id="status-detail">Connecting to GitHub and pulling latest code.</p>
         <div class="mt-4">
           <div class="progress" style="height:6px;">
             <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-primary"
                  style="width:100%"></div>
           </div>
+        </div>
+        <div id="timeout-warn" class="alert alert-warning mt-4 text-start" style="display:none;">
+          <strong>Taking longer than expected.</strong><br>
+          The update command may have failed silently. Check the container logs:<br>
+          <code>docker compose logs --tail=50 web</code><br>
+          Then try <code>update.sh</code> manually on the server.
         </div>
       </div>
     </div>
@@ -29,20 +32,53 @@
 
 {% block extra_scripts %}
 <script>
-  // Poll /health every 3 seconds; redirect to dashboard when the app comes back up.
-  (function poll() {
+  /**
+   * Correct update-wait logic:
+   *   Phase 1 — WAITING:  app is still up while git pull runs.  Keep polling.
+   *   Phase 2 — DOWN:     docker rebuild killed the old container.  Keep polling.
+   *   Phase 3 — BACK UP:  new container is healthy.  Redirect.
+   *
+   * We must see the app go DOWN before we treat a healthy response as "done".
+   * Without this the progress page bounces back immediately because the old
+   * container is still serving /health while git pull is running.
+   */
+  var wentDown = false;
+  var startTime = Date.now();
+  var MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes before we show a timeout warning
+
+  var statusEl  = document.getElementById('status-text');
+  var detailEl  = document.getElementById('status-detail');
+  var warnEl    = document.getElementById('timeout-warn');
+
+  function poll() {
+    if (Date.now() - startTime > MAX_WAIT_MS && !wentDown) {
+      // Never went down — likely the update command failed silently
+      warnEl.style.display = '';
+    }
+
     fetch('/health', { cache: 'no-store' })
       .then(function(r) {
-        if (r.ok) {
-          window.location.href = '/';
+        if (!wentDown) {
+          // Still up — git pull is running (or docker rebuild hasn't started yet)
+          statusEl.textContent  = 'Pulling latest code…';
+          detailEl.textContent  = 'Container will restart once the build begins.';
+          setTimeout(poll, 2000);
         } else {
-          setTimeout(poll, 3000);
+          // Was down, now back — new container is ready
+          statusEl.textContent = 'Done! Redirecting…';
+          window.location.href = '/';
         }
       })
       .catch(function() {
-        // App is down (rebuilding) — keep polling
+        // Unreachable — container is rebuilding
+        wentDown = true;
+        statusEl.textContent = 'Rebuilding container…';
+        detailEl.textContent = 'The old container stopped. Waiting for the new one to start.';
         setTimeout(poll, 3000);
       });
-  })();
+  }
+
+  // Short delay so the POST response finishes before we start polling
+  setTimeout(poll, 2000);
 </script>
 {% endblock %}

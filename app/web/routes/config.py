@@ -577,25 +577,45 @@ def apply_update():
         import time
         try:
             logger.info("Update started: running git pull…")
-            subprocess.run(
+            result = subprocess.run(
                 ["git", "-C", "/project/repo", "pull", "--ff-only", "origin", "master"],
                 timeout=60,
                 check=True,
                 capture_output=True,
+                text=True,
             )
+            logger.info("git pull output: %s", result.stdout.strip() or "(none)")
             logger.info("git pull complete; rebuilding container…")
             time.sleep(1)
+
+            # Try docker compose (v2 plugin) first, fall back to docker-compose (v1)
+            compose_cmd = None
+            for candidate in [["docker", "compose"], ["docker-compose"]]:
+                try:
+                    subprocess.run(
+                        candidate + ["version"],
+                        capture_output=True, check=True, timeout=5,
+                    )
+                    compose_cmd = candidate
+                    break
+                except Exception:
+                    continue
+            if compose_cmd is None:
+                logger.error("Neither 'docker compose' nor 'docker-compose' found in PATH")
+                return
+
+            logger.info("Using compose command: %s", " ".join(compose_cmd))
             subprocess.run(
-                ["docker", "compose", "-f", "/project/repo/docker-compose.yml",
-                 "up", "--build", "-d"],
+                compose_cmd + ["-f", "/project/repo/docker-compose.yml", "up", "--build", "-d"],
                 timeout=300,
                 check=True,
                 capture_output=True,
+                text=True,
             )
+            logger.info("docker compose up launched — container is rebuilding")
         except subprocess.CalledProcessError as exc:
-            logger.error("Update failed: %s\n%s", exc, exc.stderr)
-        except Exception as exc:
-            logger.error("Update failed unexpectedly: %s", exc)
+            stderr = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode(errors="replace")
+            logger.error("Update failed (exit %s): %s", exc.returncode, stderr.strip())
 
     audit(current_user.username, "app_update", "system", "Triggered in-app update")
     threading.Thread(target=_do_update, daemon=True).start()
