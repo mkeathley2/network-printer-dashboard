@@ -378,16 +378,26 @@ sudo systemctl restart printer-agent</code></pre>
             or auto-filled when a new printer with a matching IP is added.
           </p>
 
-          <h3>In-App Updates</h3>
+          <h3>Software Updates</h3>
           <p>
             The <strong>Updates</strong> tab compares the running version against the latest GitHub
-            release. If behind, a single click rebuilds the container in place. The updater runs as a
-            separate container, so the app rebuild doesn't kill the update process.
+            release. When a newer version is available, release notes are shown along with a
+            copyable block of commands to run.
           </p>
           <p>
-            <strong>Auto-rollback:</strong> if the build fails or the new container doesn't come online,
-            the updater reverts to the previous commit and rebuilds. Live logs are streamed to the
-            progress page.
+            <strong>Why updates are applied manually:</strong> the dashboard intentionally does not
+            have permission to modify its own host or containers. This keeps the attack surface very
+            small — even in the unlikely event the web app is ever compromised, the attacker cannot
+            use the app to pivot to the VM. To update, SSH into the server, pull the latest code,
+            and rebuild the container. The whole process takes about a minute.
+          </p>
+          <p class="mb-1"><strong>On the VM:</strong></p>
+          <pre><code>cd /path/to/network-printer-dashboard
+git pull
+docker compose up --build -d</code></pre>
+          <p class="small text-muted">
+            Or save yourself the typing next time by creating an <code>update.sh</code> script in
+            the repo with those three lines and making it executable (<code>chmod +x update.sh</code>).
           </p>
 
           <h3>Activity Log</h3>
@@ -430,12 +440,14 @@ sudo systemctl restart printer-agent</code></pre>
             will receive the queued update command on the next successful check-in.
           </p>
 
-          <h3>I clicked Update but the page never finished</h3>
+          <h3>An update failed — how do I roll back?</h3>
           <p>
-            The updater streams live logs — watch them carefully. If the build fails, auto-rollback
-            kicks in and restores the previous version. If the rollback also fails, SSH into the VM
-            and run <code>docker compose up --build -d</code> from the repo directory.
+            Since updates are applied manually via <code>git pull</code>, rolling back is just as easy:
           </p>
+          <pre><code>cd /path/to/network-printer-dashboard
+git log --oneline -5              # find the previous good commit SHA
+git reset --hard &lt;previous-sha&gt;
+docker compose up --build -d</code></pre>
 
           <h3>I get "SMTP not configured" but I already filled in settings</h3>
           <p>

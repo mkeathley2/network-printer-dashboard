@@ -789,21 +789,47 @@
     </div>
     {% endif %}
 
-    <!-- Action -->
+    <!-- How to update -->
     {% if has_update %}
-    <form method="POST" action="{{ url_for('config.apply_update') }}"
-          onsubmit="return confirm('The app will rebuild and restart. You will need to refresh the page in ~60 seconds.\n\nContinue?')">
-      <button type="submit" class="btn btn-success">
-        <i class="bi bi-arrow-up-circle me-1"></i>Update to {{ latest_release.tag_name }}
-      </button>
-    </form>
+    <hr class="my-3">
+    <h6 class="mb-2"><i class="bi bi-terminal me-1"></i>How to Apply This Update</h6>
+    <p class="text-muted small mb-2">
+      Updates are applied by SSH-ing into the dashboard server and running a rebuild.
+      This keeps the attack surface small — the web app itself has no permission to modify
+      the host system.
+    </p>
+
+    <ol class="small mb-2">
+      <li>SSH into the Linux VM running this dashboard.</li>
+      <li>Change to the dashboard project directory.</li>
+      <li>Run the two commands below, then refresh this page when done (takes 30–90 seconds).</li>
+    </ol>
+
+    <div class="mb-2">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <label class="form-label small mb-0 fw-semibold">Commands to run on the VM</label>
+        <button type="button" class="btn btn-sm btn-outline-primary py-0"
+                onclick="(function(btn){
+                  navigator.clipboard.writeText(document.getElementById('update-cmd').innerText).then(function(){
+                    var orig = btn.innerHTML;
+                    btn.innerHTML = '<i class=&quot;bi bi-check-lg&quot;></i> Copied';
+                    setTimeout(function(){ btn.innerHTML = orig; }, 1500);
+                  });
+                })(this)">
+          <i class="bi bi-clipboard me-1"></i>Copy
+        </button>
+      </div>
+      <pre id="update-cmd" class="border rounded p-2 bg-dark text-light mb-0"
+           style="font-size:0.82rem; font-family:Menlo,Consolas,monospace; white-space:pre-wrap;">git pull
+docker compose up --build -d</pre>
+    </div>
+    <p class="text-muted small mb-0">
+      Tip: create an <code>update.sh</code> script in your repo that does both so you only
+      have to type <code>./update.sh</code> next time.
+    </p>
     {% elif not latest_release %}
     <p class="text-muted small mb-0">
       No GitHub Releases have been published yet.
-      Use <code>update.sh</code> on the server to apply development updates.<br>
-      When a release is ready, create one on
-      <a href="https://github.com/mkeathley2/network-printer-dashboard/releases/new" target="_blank">GitHub Releases</a>
-      and the Update button will appear here automatically.
     </p>
     {% endif %}
 

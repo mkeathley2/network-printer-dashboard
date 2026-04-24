@@ -34,8 +34,11 @@ services:
     volumes:
       - ./config.yaml:/project/app/config.yaml:ro
       - ./VERSION:/project/VERSION:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - .:/project/repo
+      # Read-only mount of the agent scripts directory so the dashboard can
+      # serve install_windows.ps1 / install_pi.sh / printer_agent.py to remote agents.
+      # NOTE: The full repo and Docker socket are intentionally NOT mounted —
+      # in-app updates were removed in v0.0.12 for security reasons.
+      - ./agent:/project/repo/agent:ro
     depends_on:
       db:
         condition: service_healthy
