@@ -197,6 +197,7 @@
           <thead class="table-dark">
             <tr>
               <th class="ps-3">Username</th>
+              <th>Email</th>
               <th>Role</th>
               <th>Last Login</th>
               <th>Reset Password</th>
@@ -212,7 +213,13 @@
                 {% if u.id == current_user.id %}
                   <span class="badge bg-primary ms-1">You</span>
                 {% endif %}
+                {% if u.must_change_password %}
+                  <span class="badge bg-warning text-dark ms-1" title="User must set a new password on next login">
+                    <i class="bi bi-key me-1"></i>Temp PW
+                  </span>
+                {% endif %}
               </td>
+              <td class="text-muted small">{{ u.email or '—' }}</td>
               <td>
                 {% if u.role == 'admin' %}
                   <span class="badge bg-danger">Admin</span>
@@ -224,12 +231,24 @@
                 {{ u.last_login_at | localtime if u.last_login_at else 'Never' }}
               </td>
               <td>
-                <form method="POST" action="{{ url_for('config.set_user_password', user_id=u.id) }}"
-                      class="d-flex gap-1" style="min-width:180px;">
-                  <input type="password" name="new_password" class="form-control form-control-sm"
-                         placeholder="New password" required minlength="4">
-                  <button type="submit" class="btn btn-sm btn-outline-warning">Set</button>
-                </form>
+                <div class="d-flex flex-column gap-1">
+                  <!-- Manual password set -->
+                  <form method="POST" action="{{ url_for('config.set_user_password', user_id=u.id) }}"
+                        class="d-flex gap-1">
+                    <input type="password" name="new_password" class="form-control form-control-sm"
+                           placeholder="Manual set" minlength="4" style="min-width:130px;">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">Set</button>
+                  </form>
+                  <!-- Send reset email -->
+                  <form method="POST" action="{{ url_for('config.send_reset_email', user_id=u.id) }}">
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-warning w-100 {% if not u.email %}disabled{% endif %}"
+                            title="{% if u.email %}Email a temporary password to {{ u.email }}{% else %}No email address on file{% endif %}"
+                            {% if not u.email %}disabled{% endif %}>
+                      <i class="bi bi-envelope me-1"></i>Send Reset Email
+                    </button>
+                  </form>
+                </div>
               </td>
               <td>
                 {% if u.id != current_user.id %}
@@ -271,11 +290,18 @@
         <form method="POST" action="{{ url_for('config.add_user') }}">
           <div class="mb-3">
             <label class="form-label">Username</label>
-            <input type="text" name="username" class="form-control" required>
+            <input type="text" name="username" class="form-control" required autofocus>
           </div>
           <div class="mb-3">
-            <label class="form-label">Password</label>
-            <input type="password" name="password" class="form-control" required minlength="4">
+            <label class="form-label">
+              Email <span class="text-muted small">(optional)</span>
+            </label>
+            <input type="email" name="email" class="form-control"
+                   placeholder="user@example.com">
+            <div class="form-text">
+              If provided and SMTP is configured, a welcome email with a temporary
+              password will be sent automatically.
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Role</label>

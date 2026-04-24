@@ -141,6 +141,8 @@ def _run_migrations() -> None:
         # --- Reporting feature ---
         "ALTER TABLE alert_events ADD COLUMN replacement_cost DECIMAL(10,2) NULL",
         "ALTER TABLE alert_state ADD COLUMN predictive_alert_sent BOOLEAN NOT NULL DEFAULT 0",
+        # --- Temp password / forced change feature (v0.0.9) ---
+        "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:

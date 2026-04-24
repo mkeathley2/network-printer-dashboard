@@ -25,6 +25,7 @@ class User(UserMixin, Base):
         DateTime, nullable=False, server_default=func.now()
     )
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     def get_id(self) -> str:
         return str(self.id)

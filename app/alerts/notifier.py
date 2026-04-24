@@ -137,6 +137,112 @@ def _send_email(subject: str, body_text: str, body_html: str, recipients: list[s
 
 
 # ---------------------------------------------------------------------------
+# User account emails (welcome / password reset)
+# ---------------------------------------------------------------------------
+
+def send_welcome_email(
+    user_email: str,
+    username: str,
+    temp_password: str,
+    dashboard_url: str,
+) -> tuple[bool, str]:
+    """Send a welcome email to a newly created user with their temporary password."""
+    subject = "Your Network Printer Dashboard Account"
+    body_text = (
+        f"Welcome, {username}!\n\n"
+        f"An account has been created for you on the Network Printer Dashboard.\n\n"
+        f"Login URL:          {dashboard_url}/login\n"
+        f"Username:           {username}\n"
+        f"Temporary Password: {temp_password}\n\n"
+        f"You will be required to set a new password the first time you log in.\n\n"
+        f"This is an automated message from the Network Printer Dashboard."
+    )
+    body_html = f"""\
+<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;max-width:520px;margin:0 auto;">
+  <div style="text-align:center;padding:24px 0 8px;">
+    <span style="font-size:2.5rem;">🖨️</span>
+    <h2 style="margin:8px 0 4px;">Network Printer Dashboard</h2>
+    <p style="color:#666;margin:0;">Your account is ready</p>
+  </div>
+  <div style="background:#f8f9fa;border-radius:8px;padding:24px;margin:16px 0;">
+    <p>Hi <strong>{username}</strong>,</p>
+    <p>An account has been created for you. Use the credentials below to sign in:</p>
+    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="color:#666;width:40%;">Login URL</td>
+        <td><a href="{dashboard_url}/login">{dashboard_url}/login</a></td>
+      </tr>
+      <tr style="background:#fff;border-radius:4px;">
+        <td style="color:#666;">Username</td>
+        <td><strong>{username}</strong></td>
+      </tr>
+      <tr>
+        <td style="color:#666;">Temporary Password</td>
+        <td><code style="background:#e9ecef;padding:2px 6px;border-radius:4px;font-size:1.1em;">{temp_password}</code></td>
+      </tr>
+    </table>
+    <p style="margin-top:16px;color:#c0392b;"><strong>⚠️ You will be asked to set a new password on your first login.</strong></p>
+  </div>
+  <p style="font-size:12px;color:#999;text-align:center;">
+    Automated message from the <strong>Network Printer Dashboard</strong>.
+  </p>
+</body></html>"""
+    return _send_email(subject, body_text, body_html, [user_email])
+
+
+def send_password_reset_email(
+    user_email: str,
+    username: str,
+    temp_password: str,
+    dashboard_url: str,
+) -> tuple[bool, str]:
+    """Send a password reset email with a new temporary password."""
+    subject = "Network Printer Dashboard — Password Reset"
+    body_text = (
+        f"Hi {username},\n\n"
+        f"Your password on the Network Printer Dashboard has been reset by an administrator.\n\n"
+        f"Login URL:          {dashboard_url}/login\n"
+        f"Username:           {username}\n"
+        f"Temporary Password: {temp_password}\n\n"
+        f"You will be required to set a new password the first time you log in.\n\n"
+        f"If you did not expect this, please contact your administrator.\n\n"
+        f"This is an automated message from the Network Printer Dashboard."
+    )
+    body_html = f"""\
+<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#333;max-width:520px;margin:0 auto;">
+  <div style="text-align:center;padding:24px 0 8px;">
+    <span style="font-size:2.5rem;">🔑</span>
+    <h2 style="margin:8px 0 4px;">Password Reset</h2>
+    <p style="color:#666;margin:0;">Network Printer Dashboard</p>
+  </div>
+  <div style="background:#f8f9fa;border-radius:8px;padding:24px;margin:16px 0;">
+    <p>Hi <strong>{username}</strong>,</p>
+    <p>Your password has been reset by an administrator. Use the credentials below to sign in:</p>
+    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;">
+      <tr>
+        <td style="color:#666;width:40%;">Login URL</td>
+        <td><a href="{dashboard_url}/login">{dashboard_url}/login</a></td>
+      </tr>
+      <tr style="background:#fff;border-radius:4px;">
+        <td style="color:#666;">Username</td>
+        <td><strong>{username}</strong></td>
+      </tr>
+      <tr>
+        <td style="color:#666;">Temporary Password</td>
+        <td><code style="background:#e9ecef;padding:2px 6px;border-radius:4px;font-size:1.1em;">{temp_password}</code></td>
+      </tr>
+    </table>
+    <p style="margin-top:16px;color:#c0392b;"><strong>⚠️ You will be asked to set a new password on your first login.</strong></p>
+  </div>
+  <p style="font-size:12px;color:#999;text-align:center;">
+    If you did not expect this reset, contact your administrator immediately.<br>
+    Automated message from the <strong>Network Printer Dashboard</strong>.
+  </p>
+</body></html>"""
+    return _send_email(subject, body_text, body_html, [user_email])
+
+
+# ---------------------------------------------------------------------------
 # Alert emails
 # ---------------------------------------------------------------------------
 def send_alert_email(

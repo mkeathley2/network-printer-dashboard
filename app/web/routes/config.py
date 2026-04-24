@@ -345,26 +345,101 @@ def save_poll_interval():
 @bp.route("/users/add", methods=["POST"])
 @admin_required
 def add_user():
+    import secrets
     username = request.form.get("username", "").strip()
-    password = request.form.get("password", "").strip()
+    email = request.form.get("email", "").strip() or None
     role = request.form.get("role", "viewer").strip()
 
-    if not username or not password:
-        flash("Username and password are required.", "danger")
+    if not username:
+        flash("Username is required.", "danger")
         return redirect(url_for("config.index", tab="users"))
 
     if db.session.query(User).filter_by(username=username).first():
         flash(f"Username '{username}' already exists.", "danger")
         return redirect(url_for("config.index", tab="users"))
 
-    db.session.add(User(
+    if email and db.session.query(User).filter_by(email=email).first():
+        flash(f"Email '{email}' is already in use.", "danger")
+        return redirect(url_for("config.index", tab="users"))
+
+    # Generate a random temporary password
+    temp_password = secrets.token_urlsafe(10)
+
+    new_user = User(
         username=username,
-        password_hash=generate_password_hash(password),
+        email=email,
+        password_hash=generate_password_hash(temp_password),
         role=role,
-    ))
+        must_change_password=True,
+    )
+    db.session.add(new_user)
     db.session.commit()
     audit(current_user.username, "user_add", username, f"Created user '{username}' with role {role}")
-    flash(f"User '{username}' created.", "success")
+
+    # Try to send welcome email if an address was provided
+    if email:
+        try:
+            from app.alerts.notifier import send_welcome_email
+            dashboard_url = _get_setting("public_url", "").rstrip("/")
+            ok, msg = send_welcome_email(email, username, temp_password, dashboard_url)
+            if ok:
+                flash(f"User '{username}' created — welcome email sent to {email}.", "success")
+            else:
+                flash(
+                    f"User '{username}' created, but email could not be sent ({msg}). "
+                    f"Share this temporary password manually: {temp_password}",
+                    "warning",
+                )
+        except Exception as exc:
+            flash(
+                f"User '{username}' created, but email failed: {exc}. "
+                f"Temporary password: {temp_password}",
+                "warning",
+            )
+    else:
+        flash(
+            f"User '{username}' created. "
+            f"Temporary password (share with user): {temp_password}",
+            "warning",
+        )
+    return redirect(url_for("config.index", tab="users"))
+
+
+@bp.route("/users/<int:user_id>/send-reset-email", methods=["POST"])
+@admin_required
+def send_reset_email(user_id: int):
+    import secrets
+    user = db.get_or_404(User, user_id)
+
+    if not user.email:
+        flash(f"No email address on file for '{user.username}'. Set one first.", "danger")
+        return redirect(url_for("config.index", tab="users"))
+
+    temp_password = secrets.token_urlsafe(10)
+    user.password_hash = generate_password_hash(temp_password)
+    user.must_change_password = True
+    db.session.commit()
+    audit(current_user.username, "user_reset_email", user.username,
+          f"Sent password reset email to '{user.username}' ({user.email})")
+
+    try:
+        from app.alerts.notifier import send_password_reset_email
+        dashboard_url = _get_setting("public_url", "").rstrip("/")
+        ok, msg = send_password_reset_email(user.email, user.username, temp_password, dashboard_url)
+        if ok:
+            flash(f"Password reset email sent to {user.email}.", "success")
+        else:
+            flash(
+                f"Password was reset but email could not be sent ({msg}). "
+                f"Temporary password: {temp_password}",
+                "warning",
+            )
+    except Exception as exc:
+        flash(
+            f"Password was reset but email failed: {exc}. "
+            f"Temporary password: {temp_password}",
+            "warning",
+        )
     return redirect(url_for("config.index", tab="users"))
 
 
@@ -392,6 +467,7 @@ def set_user_password(user_id: int):
         flash("Password must be at least 4 characters.", "danger")
         return redirect(url_for("config.index", tab="users"))
     user.password_hash = generate_password_hash(new_pw)
+    user.must_change_password = False
     db.session.commit()
     audit(current_user.username, "user_password", user.username,
           f"Changed password for '{user.username}'")
