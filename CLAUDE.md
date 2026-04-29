@@ -13,7 +13,9 @@ After making those changes:
 5. Push to GitHub (`git push`)
 6. Create a GitHub Release tagged with the new version (`gh release create v0.0.9 ...`)
 
-Skipping any of these steps causes agent version mismatches and broken in-app updates.
+Skipping any of these steps causes agent version mismatches (the dashboard
+auto-queues an update for any agent whose version differs from VERSION) and
+makes the GitHub release / dashboard Updates tab go out of sync.
 
 ---
 
