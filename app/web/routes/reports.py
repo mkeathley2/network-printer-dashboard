@@ -365,34 +365,42 @@ def consumption_rate():
         ]
 
         for idx in indexes:
-            # Replacement-aware regression: only fits to data since the last
-            # toner_replaced/drum_replaced event for this slot.
-            d = compute_supply_depletion(p.id, idx, db.session, window_days=window_days)
-            if not d or d["slope_pct_per_day"] >= 0:
-                continue  # not depleting / insufficient data
+            try:
+                # Replacement-aware regression: only fits to data since the last
+                # toner_replaced/drum_replaced event for this slot.
+                d = compute_supply_depletion(p.id, idx, db.session, window_days=window_days)
+                if not d or d["slope_pct_per_day"] >= 0:
+                    continue  # not depleting / insufficient data
 
-            # Pull the latest snapshot to get the current color/description
-            latest = (
-                db.session.query(SupplySnapshot)
-                .filter_by(printer_id=p.id, supply_index=idx)
-                .order_by(SupplySnapshot.polled_at.desc())
-                .first()
-            )
-            color = (latest.supply_color if latest else "unknown") or "unknown"
-            desc = (latest.supply_description if latest else "") or f"{color.title()} Toner"
+                # Pull the latest snapshot to get the current color/description
+                latest = (
+                    db.session.query(SupplySnapshot)
+                    .filter_by(printer_id=p.id, supply_index=idx)
+                    .order_by(SupplySnapshot.polled_at.desc())
+                    .first()
+                )
+                color = (latest.supply_color if latest else "unknown") or "unknown"
+                desc = (latest.supply_description if latest else "") or f"{color.title()} Toner"
 
-            rows.append({
-                "printer_name": p.effective_name,
-                "printer_id": p.id,
-                "location": p.location.name if p.location else "",
-                "color": color,
-                "description": desc,
-                "supply_index": idx,
-                "pct_per_day": abs(d["slope_pct_per_day"]),
-                "current_pct": d["current_pct"],
-                "days_remaining": d["days_remaining"],
-                "data_points": d["data_points"],
-            })
+                rows.append({
+                    "printer_name": p.effective_name,
+                    "printer_id": p.id,
+                    "location": p.location.name if p.location else "",
+                    "color": color,
+                    "description": desc,
+                    "supply_index": idx,
+                    "pct_per_day": abs(d["slope_pct_per_day"]),
+                    "current_pct": d["current_pct"],
+                    "days_remaining": d["days_remaining"],
+                    "data_points": d["data_points"],
+                })
+            except Exception:
+                logger.exception(
+                    "Consumption-rate row failed for printer_id=%s supply_index=%s",
+                    p.id, idx,
+                )
+                # Skip this one row, keep building the report
+                continue
 
     rows.sort(key=lambda r: r["days_remaining"] if r["days_remaining"] is not None else 9999)
 
