@@ -27,10 +27,17 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - Full asset info — IP, hostname, model, serial, vendor, page count, plus optional fields (assigned person, SQL number, computer, phone ext., printer web login credentials)
 - Live supply level bars
 - **Toner Replacement History** with admin-editable cost per replacement
-- Page-count history chart
 - Per-printer alert threshold overrides
 - Recent alerts log
 - One-click actions: Poll Now, Resend Alerts, Create Helpdesk Ticket, Set Thresholds, Remove Printer
+
+### Per-Printer History Page
+- **Date-range filter pills** — 7d / 30d / 90d / All time (default: 90 days)
+- **Active Supplies summary table** — color, status badge, current %, consumption rate (% per day), days remaining at current rate, predicted empty date
+- **Pages-per-day** average card alongside the depletion table
+- **Supply Levels Over Time chart** with vertical dashed markers showing each toner replacement event (color-coded to the cartridge), labeled dates on the X-axis
+- **Page Count Over Time chart** with the same date-aware time axis
+- Depletion estimates are **replacement-aware** — the regression only fits to data after the most recent replacement, so the numbers stay accurate right after you swap a cartridge
 
 ### Vendor Support
 - Auto-detection from SNMP `sysObjectID`
@@ -82,7 +89,7 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - **Email / SMTP** — STARTTLS, SSL/TLS, or none; with built-in test email
 - **Locations** — tag printers by location for filtering and grouping
 - **Spreadsheet Import** — bulk-import asset fields from .xlsx (matches by IP)
-- **Thresholds** — site-wide warning/critical %, poll interval, timezone
+- **Thresholds** — site-wide warning/critical %, poll interval, timezone; one-click button to bulk-reset per-printer threshold overrides back to site defaults
 - **Alert Settings** — per-event-type email toggles + Predictive Toner Alerts config
 - **Activity Log** — every admin action with CSV export
 - **Backup & Reset** — SQL dump download or factory reset

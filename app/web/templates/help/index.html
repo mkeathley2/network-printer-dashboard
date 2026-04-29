@@ -139,9 +139,30 @@
             <li><strong>Asset info</strong> — display name, IP, vendor, model, serial, assigned person, SQL number, phone ext., web login credentials</li>
             <li><strong>Supply Levels</strong> — live bars for every toner, drum, or ink cartridge</li>
             <li><strong>Toner Replacement History</strong> — every time a cartridge was swapped, with an admin-editable cost field</li>
-            <li><strong>History charts</strong> — page count and supply levels over time</li>
+            <li><strong>History link</strong> — opens the per-printer History page (next section)</li>
             <li><strong>Recent alerts</strong> — the last dozen alerts raised for this printer</li>
           </ul>
+
+          <h3>The History page</h3>
+          <p>
+            Click the <strong>History</strong> button on a printer's detail page to open a deeper view
+            with depletion estimates and historical charts.
+          </p>
+          <ul>
+            <li><strong>Date range pills</strong> at the top right — switch between 7 days / 30 days /
+              90 days / All time (default: 90 days)</li>
+            <li><strong>Active Supplies table</strong> — for every cartridge: color, status (OK / Warning / Critical),
+              current %, consumption rate (% per day), days remaining at the current rate, predicted empty date</li>
+            <li><strong>Pages-per-day card</strong> — average page output over the selected window</li>
+            <li><strong>Supply Levels Over Time chart</strong> — one line per supply, with vertical dashed
+              markers showing each replacement event (color-coded to the cartridge)</li>
+            <li><strong>Page Count Over Time chart</strong></li>
+          </ul>
+          <p class="text-muted small">
+            Depletion estimates are <strong>replacement-aware</strong>: the regression line is fitted only
+            to readings after the most recent toner_replaced / drum_replaced event, so days-remaining
+            stays accurate right after you swap a cartridge.
+          </p>
 
           <h3>Actions available on the detail page</h3>
           <ul>
@@ -354,7 +375,14 @@ sudo systemctl restart printer-agent</code></pre>
           <h3>Thresholds</h3>
           <p>
             Set the site-wide warning and critical percentages for supply level alerts. Any printer can
-            override these from its detail page.
+            override these from its detail page (the override goes onto that printer's row in the database).
+          </p>
+          <p>
+            <strong>Reset Per-Printer Overrides</strong> — the same tab has a one-click button that bulk-clears
+            every per-printer override at once. Useful when you change the site default and want all printers
+            to inherit the new value (the site default doesn't automatically apply to printers with their own
+            overrides). The button shows the count of printers currently overridden and is disabled when
+            there's nothing to clear.
           </p>
 
           <h3>Predictive Toner Alerts</h3>
