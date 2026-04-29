@@ -117,6 +117,18 @@ def index():
 
     tab = request.args.get("tab", "smtp")
 
+    # Count printers that currently have a per-printer threshold override
+    threshold_override_count = 0
+    if tab == "thresholds":
+        threshold_override_count = (
+            db.session.query(Printer)
+            .filter(
+                (Printer.supply_warn_pct.isnot(None))
+                | (Printer.supply_crit_pct.isnot(None))
+            )
+            .count()
+        )
+
     removed_printers = []
     if tab == "removed":
         removed_printers = (
@@ -176,6 +188,7 @@ def index():
         active_tab=tab,
         warn_pct=warn_pct,
         crit_pct=crit_pct,
+        threshold_override_count=threshold_override_count,
         poll_interval=poll_interval,
         timezone=timezone,
         timezone_choices=TIMEZONE_CHOICES,
@@ -257,6 +270,38 @@ def save_thresholds():
     audit(current_user.username, "config_thresholds", "site",
           f"Updated site thresholds: warn={warn}%, crit={crit}%")
     flash("Threshold settings saved.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
+
+
+@bp.route("/thresholds/reset-all-overrides", methods=["POST"])
+@admin_required
+def reset_all_threshold_overrides():
+    """
+    Clear per-printer warn/crit overrides on every printer (active and inactive).
+    After this, all printers fall back to the site-wide defaults.
+    """
+    affected = (
+        db.session.query(Printer)
+        .filter(
+            (Printer.supply_warn_pct.isnot(None))
+            | (Printer.supply_crit_pct.isnot(None))
+        )
+        .update(
+            {Printer.supply_warn_pct: None, Printer.supply_crit_pct: None},
+            synchronize_session=False,
+        )
+    )
+    db.session.commit()
+    audit(current_user.username, "thresholds_reset_all", "all printers",
+          f"Cleared per-printer threshold overrides on {affected} printer(s)")
+    if affected:
+        flash(
+            f"Cleared per-printer threshold overrides on {affected} printer(s). "
+            f"They will now use the site-wide defaults.",
+            "success",
+        )
+    else:
+        flash("No per-printer overrides were set — nothing to clear.", "info")
     return redirect(url_for("config.index", tab="thresholds"))
 
 

@@ -542,7 +542,7 @@
         </form>
       </div>
     </div>
-    <div class="card">
+    <div class="card mb-3">
       <div class="card-header fw-semibold">Site-Wide Alert Thresholds</div>
       <div class="card-body">
         <p class="text-muted small mb-3">
@@ -573,6 +573,40 @@
         </form>
       </div>
     </div>
+
+    <div class="card border-warning">
+      <div class="card-header fw-semibold bg-warning-subtle">
+        <i class="bi bi-arrow-counterclockwise me-1"></i>Reset Per-Printer Overrides
+      </div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          Each printer can override these site-wide thresholds from its detail page.
+          {% if threshold_override_count > 0 %}
+            <strong>{{ threshold_override_count }} printer(s)</strong> currently have their own
+            per-printer thresholds. Changing the site default above does <strong>not</strong>
+            affect those — they keep using their own values until you reset them.
+          {% else %}
+            No printers currently have per-printer overrides — they're all using the site defaults.
+          {% endif %}
+        </p>
+        <p class="text-muted small mb-3">
+          Use the button below to clear all per-printer overrides at once. Individual overrides
+          can still be set later from each printer's detail page; this only resets the existing ones.
+        </p>
+        <form method="POST" action="{{ url_for('config.reset_all_threshold_overrides') }}"
+              onsubmit="return confirm('Clear per-printer threshold overrides on {{ threshold_override_count }} printer(s)?\n\nAll printers will then fall back to the site-wide defaults ({{ warn_pct }}% warning, {{ crit_pct }}% critical). Individual overrides can still be set later from each printer page.\n\nContinue?');">
+          <button type="submit" class="btn btn-warning"
+                  {% if threshold_override_count == 0 %}disabled{% endif %}>
+            <i class="bi bi-arrow-counterclockwise me-1"></i>
+            Reset All Per-Printer Overrides
+            {% if threshold_override_count > 0 %}
+              <span class="badge bg-dark ms-1">{{ threshold_override_count }}</span>
+            {% endif %}
+          </button>
+        </form>
+      </div>
+    </div>
+
   </div>
 </div>
 <!-- ===================== ACTIVITY LOG TAB ===================== -->
