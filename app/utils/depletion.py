@@ -91,9 +91,21 @@ def compute_supply_depletion(
 
     current_pct = ys[-1]
 
+    # Cap how absurd a "days remaining" estimate can be.  When the regression
+    # slope is essentially flat (e.g. -1e-50 due to floating-point noise),
+    # days_remaining = current_pct / |slope| explodes into the trillions —
+    # which then overflows datetime.timedelta (max ~9999 days).  Anything
+    # past this cap is "not depleting" for any practical purpose.
+    _MAX_DAYS = 3650  # ~10 years
+
     if slope < 0:
-        days_remaining = current_pct / abs(slope)
-        predicted_empty_at = now + timedelta(days=days_remaining)
+        raw_days = current_pct / abs(slope)
+        if raw_days > _MAX_DAYS:
+            days_remaining = None
+            predicted_empty_at = None
+        else:
+            days_remaining = raw_days
+            predicted_empty_at = now + timedelta(days=raw_days)
     else:
         days_remaining = None
         predicted_empty_at = None

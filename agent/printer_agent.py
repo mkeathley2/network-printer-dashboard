@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.15
+Version: v0.0.16
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -78,7 +78,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.15"
+AGENT_VERSION = "v0.0.16"
 
 # ---------------------------------------------------------------------------
 # OIDs

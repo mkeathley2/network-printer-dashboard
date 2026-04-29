@@ -369,8 +369,10 @@ def consumption_rate():
                 # Replacement-aware regression: only fits to data since the last
                 # toner_replaced/drum_replaced event for this slot.
                 d = compute_supply_depletion(p.id, idx, db.session, window_days=window_days)
-                if not d or d["slope_pct_per_day"] >= 0:
-                    continue  # not depleting / insufficient data
+                if not d:
+                    continue  # insufficient data
+                if d["slope_pct_per_day"] >= 0 or d["days_remaining"] is None:
+                    continue  # not depleting (or essentially flat — beyond cap)
 
                 # Pull the latest snapshot to get the current color/description
                 latest = (
