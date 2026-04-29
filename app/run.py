@@ -164,6 +164,7 @@ def _check_predictive_toner() -> None:
             from app.models import Printer, SupplySnapshot
             from app.models.alert import AlertState
             from app.core.database import db
+            from app.utils.depletion import compute_supply_depletion
 
             printers = db.session.query(Printer).filter_by(is_active=True).all()
             for printer in printers:
@@ -178,42 +179,16 @@ def _check_predictive_toner() -> None:
                 ]
 
                 for idx in indexes:
-                    cutoff = datetime.utcnow() - timedelta(days=90)
-                    readings = (
-                        db.session.query(SupplySnapshot)
-                        .filter(
-                            SupplySnapshot.printer_id == printer.id,
-                            SupplySnapshot.supply_index == idx,
-                            SupplySnapshot.supply_type == "tonerCartridge",
-                            SupplySnapshot.level_pct.isnot(None),
-                            SupplySnapshot.polled_at >= cutoff,
-                        )
-                        .order_by(SupplySnapshot.polled_at)
-                        .all()
-                    )
-
-                    if len(readings) < min_points:
+                    # Replacement-aware depletion estimate — only fits to data
+                    # since the most recent toner_replaced event for this slot.
+                    d = compute_supply_depletion(printer.id, idx, db.session, window_days=90)
+                    if not d:
                         continue
-
-                    # Linear regression: % per day
-                    epoch = readings[0].polled_at.timestamp()
-                    xs = [(r.polled_at.timestamp() - epoch) / 86400.0 for r in readings]
-                    ys = [float(r.level_pct) for r in readings]
-                    n = len(xs)
-                    sum_x = sum(xs)
-                    sum_y = sum(ys)
-                    sum_xy = sum(x * y for x, y in zip(xs, ys))
-                    sum_xx = sum(x * x for x in xs)
-                    denom = n * sum_xx - sum_x * sum_x
-                    slope = ((n * sum_xy - sum_x * sum_y) / denom) if denom != 0 else 0.0
-
-                    if slope >= 0:
+                    if d["data_points"] < min_points:
+                        continue
+                    if d["days_remaining"] is None:
                         continue  # Not depleting
-
-                    current_pct = ys[-1]
-                    days_remaining = current_pct / abs(slope)
-
-                    if days_remaining > threshold_days:
+                    if d["days_remaining"] > threshold_days:
                         continue
 
                     # Check dedup via AlertState.predictive_alert_sent
@@ -223,8 +198,20 @@ def _check_predictive_toner() -> None:
                     if state and state.predictive_alert_sent:
                         continue
 
+                    # Need the latest reading for color/description in the ticket
+                    latest_reading = (
+                        db.session.query(SupplySnapshot)
+                        .filter_by(printer_id=printer.id, supply_index=idx)
+                        .order_by(SupplySnapshot.polled_at.desc())
+                        .first()
+                    )
+
                     # Fire the ticket
-                    _send_predictive_ticket(printer, readings[-1], days_remaining, abs(slope), len(readings))
+                    _send_predictive_ticket(
+                        printer, latest_reading,
+                        d["days_remaining"], abs(d["slope_pct_per_day"]),
+                        d["data_points"],
+                    )
 
                     # Mark sent
                     if not state:

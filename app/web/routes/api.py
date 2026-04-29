@@ -4,7 +4,7 @@ HTMX partial-HTML endpoints and Chart.js JSON data endpoints.
 from __future__ import annotations
 
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, render_template, request
 from flask_login import current_user, login_required
@@ -285,6 +285,30 @@ def discovery_add_all(scan_id: int):
     return redirect(url_for("discovery.index"))
 
 
+def _history_cutoff() -> datetime | None:
+    """
+    Parse ?days=N from the request and return the corresponding cutoff datetime.
+
+    Accepted values:
+      * integer string (e.g. "7", "30", "90") — return now() - N days
+      * "all" or "0" — return None (no time filter)
+      * missing / invalid — return None (caller decides default)
+
+    Caps the integer at 3650 days as a safety bound.
+    """
+    raw = request.args.get("days")
+    if raw is None:
+        return None
+    if raw.strip().lower() == "all" or raw.strip() == "0":
+        return None
+    try:
+        n = int(raw)
+    except ValueError:
+        return None
+    n = max(1, min(n, 3650))
+    return datetime.utcnow() - timedelta(days=n)
+
+
 # ---------------------------------------------------------------------------
 # Chart.js JSON: supply level history
 # ---------------------------------------------------------------------------
@@ -292,12 +316,15 @@ def discovery_add_all(scan_id: int):
 @login_required
 def api_supply_history(printer_id: int):
     from app.utils.timezone import to_local
-    rows = (
+    q = (
         db.session.query(SupplySnapshot)
         .filter_by(printer_id=printer_id)
-        .order_by(SupplySnapshot.polled_at.asc())
-        .all()
     )
+    cutoff = _history_cutoff()
+    if cutoff is not None:
+        q = q.filter(SupplySnapshot.polled_at >= cutoff)
+    rows = q.order_by(SupplySnapshot.polled_at.asc()).all()
+
     series: dict[str, dict] = {}
     for row in rows:
         key = f"{row.supply_index}"
@@ -319,12 +346,14 @@ def api_supply_history(printer_id: int):
 @login_required
 def api_page_history(printer_id: int):
     from app.utils.timezone import to_local
-    rows = (
+    q = (
         db.session.query(TelemetrySnapshot)
         .filter_by(printer_id=printer_id)
         .filter(TelemetrySnapshot.page_count.isnot(None))
-        .order_by(TelemetrySnapshot.polled_at.asc())
-        .all()
     )
+    cutoff = _history_cutoff()
+    if cutoff is not None:
+        q = q.filter(TelemetrySnapshot.polled_at >= cutoff)
+    rows = q.order_by(TelemetrySnapshot.polled_at.asc()).all()
     data = [{"x": to_local(r.polled_at).isoformat(), "y": r.page_count} for r in rows]
     return jsonify(data)

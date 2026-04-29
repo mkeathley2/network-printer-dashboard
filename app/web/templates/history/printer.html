@@ -3,48 +3,187 @@
 
 {% block extra_head %}
 <style>
-  .chart-container { position: relative; height: 280px; }
+  .chart-container { position: relative; height: 320px; }
+  .range-pills .btn { min-width: 64px; }
+  .supply-dot { display:inline-block; width:12px; height:12px; border-radius:50%; vertical-align:middle; margin-right:6px; }
+  .supply-dot.black   { background:#212529; }
+  .supply-dot.cyan    { background:#0dcaf0; }
+  .supply-dot.magenta { background:#d63384; }
+  .supply-dot.yellow  { background:#ffc107; }
+  .supply-dot.unknown { background:#adb5bd; }
+  .kpi-num { font-size: 2.4rem; font-weight: 600; line-height: 1; }
+  .kpi-label { font-size: 0.85rem; color: #6c757d; text-transform: uppercase; letter-spacing: .03em; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="d-flex align-items-center mb-3 gap-2">
+
+<!-- Header + range pills -->
+<div class="d-flex flex-wrap align-items-center mb-3 gap-2">
   <a href="{{ url_for('printers.detail', printer_id=printer.id) }}" class="btn btn-sm btn-outline-secondary">
     <i class="bi bi-arrow-left"></i>
   </a>
-  <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>History — {{ printer.effective_name }}</h5>
+  <h5 class="mb-0 me-auto"><i class="bi bi-graph-up me-2"></i>History — {{ printer.effective_name }}</h5>
+
+  <div class="btn-group range-pills" role="group" aria-label="Date range">
+    {% for d, label in [('7','7d'), ('30','30d'), ('90','90d'), ('all','All')] %}
+      <a href="{{ url_for('history.printer_history', printer_id=printer.id, days=d) }}"
+         class="btn btn-sm {% if days == d %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        {{ label }}
+      </a>
+    {% endfor %}
+  </div>
 </div>
 
-<div class="row g-3">
-  <!-- Supply level chart -->
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header fw-semibold">Supply Levels Over Time</div>
-      <div class="card-body">
-        <div class="chart-container">
-          <canvas id="supplyChart"></canvas>
-        </div>
+<!-- Summary row: active supplies + pages-per-day -->
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-droplet-half me-1"></i>Active Supplies
       </div>
+      {% if depletions %}
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Supply</th>
+              <th class="text-center">Status</th>
+              <th class="text-end">Current</th>
+              <th class="text-end">Rate</th>
+              <th class="text-end">Days Left</th>
+              <th class="text-end pe-3">Predicted Empty</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in depletions %}
+            <tr>
+              <td class="ps-3">
+                <span class="supply-dot {{ d.supply_color | lower }}"></span>
+                <strong>{{ d.description }}</strong>
+              </td>
+              <td class="text-center">
+                {% if d.status == 'critical' %}
+                  <span class="badge bg-danger">Critical</span>
+                {% elif d.status == 'warning' %}
+                  <span class="badge bg-warning text-dark">Warning</span>
+                {% elif d.status == 'ok' %}
+                  <span class="badge bg-success">OK</span>
+                {% else %}
+                  <span class="badge bg-secondary">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if d.current_pct is not none %}
+                  <strong>{{ '%.0f' | format(d.current_pct) }}%</strong>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if d.depletion and d.depletion.slope_pct_per_day < 0 %}
+                  <span class="text-muted small">{{ '%.2f' | format(d.depletion.slope_pct_per_day | abs) }}%/day</span>
+                {% elif d.depletion %}
+                  <span class="text-muted small">stable</span>
+                {% else %}
+                  <span class="text-muted small">—</span>
+                {% endif %}
+              </td>
+              <td class="text-end">
+                {% if d.depletion and d.depletion.days_remaining is not none %}
+                  {% set dr = d.depletion.days_remaining %}
+                  <strong class="{% if dr <= 7 %}text-danger{% elif dr <= 30 %}text-warning{% endif %}">
+                    {{ '%.1f' | format(dr) }}
+                  </strong>
+                {% else %}
+                  <span class="text-muted small">not depleting</span>
+                {% endif %}
+              </td>
+              <td class="text-end pe-3 text-muted small">
+                {% if d.depletion and d.depletion.predicted_empty_at %}
+                  {{ d.depletion.predicted_empty_at | localtime("%b %d, %Y") }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer text-muted small py-2">
+        Rate is fitted by linear regression on supply readings since the most recent
+        replacement event. Need at least 3 readings to estimate.
+      </div>
+      {% else %}
+      <div class="card-body text-center text-muted py-5">
+        No supply data yet. Once this printer is polled a few times, depletion estimates will appear here.
+      </div>
+      {% endif %}
     </div>
   </div>
 
-  <!-- Page count chart -->
-  <div class="col-12">
-    <div class="card">
-      <div class="card-header fw-semibold">Page Count Over Time</div>
-      <div class="card-body">
-        <div class="chart-container">
-          <canvas id="pageChart"></canvas>
-        </div>
+  <div class="col-lg-4">
+    <div class="card h-100">
+      <div class="card-header fw-semibold">
+        <i class="bi bi-printer me-1"></i>Print Volume
+      </div>
+      <div class="card-body text-center d-flex flex-column justify-content-center">
+        {% if pages_per_day is not none %}
+          <div class="kpi-num">{{ '%.0f' | format(pages_per_day) }}</div>
+          <div class="kpi-label">pages / day average</div>
+          <div class="text-muted small mt-2">
+            {% if days == 'all' %}
+              over all recorded history
+            {% else %}
+              over the last {{ days }} days
+            {% endif %}
+          </div>
+        {% else %}
+          <div class="text-muted">
+            <i class="bi bi-hourglass-split fs-3 mb-2 d-block"></i>
+            Not enough page-count data yet.
+          </div>
+        {% endif %}
       </div>
     </div>
   </div>
 </div>
+
+<!-- Supply chart -->
+<div class="card mb-3">
+  <div class="card-header fw-semibold">
+    Supply Levels Over Time
+    {% if replacement_events %}
+      <span class="text-muted small ms-2">
+        ({{ replacement_events | length }} replacement{{ '' if replacement_events | length == 1 else 's' }} marked)
+      </span>
+    {% endif %}
+  </div>
+  <div class="card-body">
+    <div class="chart-container">
+      <canvas id="supplyChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Page count chart -->
+<div class="card">
+  <div class="card-header fw-semibold">Page Count Over Time</div>
+  <div class="card-body">
+    <div class="chart-container">
+      <canvas id="pageChart"></canvas>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_scripts %}
 <script>
 const PRINTER_ID = {{ printer.id }};
+const DAYS_PARAM = {{ days | tojson }};
+const REPLACEMENT_ANNOTATIONS = {{ annotations_json | safe }};
 
 // Color map for known supply colors
 const COLOR_MAP = {
@@ -57,21 +196,35 @@ function colorFor(name) {
   return COLOR_MAP[name] || { border: '#6c757d', bg: 'rgba(108,117,125,0.15)' };
 }
 
-const commonOptions = {
+// X-axis config — explicit displayFormats so dates always show, not just times.
+const xScale = {
+  type: 'time',
+  time: {
+    tooltipFormat: 'MMM d, yyyy h:mm a',   // "Apr 28, 2026 4:30 PM"
+    displayFormats: {
+      minute: 'MMM d, h:mm a',
+      hour:   'MMM d, h a',                 // "Apr 28, 4 PM"
+      day:    'MMM d',                      // "Apr 28"
+      week:   'MMM d',
+      month:  'MMM yyyy',                   // "Apr 2026"
+    },
+  },
+  title: { display: true, text: 'Date / Time' },
+  ticks: { maxRotation: 0, autoSkip: true, autoSkipPadding: 12 },
+};
+
+const baseOptions = {
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { position: 'bottom' } },
-  scales: {
-    x: {
-      type: 'time',
-      time: { tooltipFormat: 'MMM d, HH:mm' },
-      title: { display: true, text: 'Date / Time' }
-    }
-  }
+  interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+  plugins: {
+    legend: { position: 'bottom' },
+  },
+  scales: { x: xScale },
 };
 
 // Supply chart
-fetch(`/api/history/${PRINTER_ID}/supplies`)
+fetch(`/api/history/${PRINTER_ID}/supplies?days=${DAYS_PARAM}`)
   .then(r => r.json())
   .then(series => {
     const datasets = series.map(s => {
@@ -83,24 +236,29 @@ fetch(`/api/history/${PRINTER_ID}/supplies`)
         backgroundColor: c.bg,
         fill: true,
         tension: 0.3,
-        pointRadius: 2,
+        pointRadius: 1.5,
+        pointHoverRadius: 4,
       };
     });
     new Chart(document.getElementById('supplyChart'), {
       type: 'line',
       data: { datasets },
       options: {
-        ...commonOptions,
+        ...baseOptions,
+        plugins: {
+          ...baseOptions.plugins,
+          annotation: { annotations: REPLACEMENT_ANNOTATIONS },
+        },
         scales: {
-          ...commonOptions.scales,
-          y: { min: 0, max: 100, title: { display: true, text: '% Remaining' } }
-        }
-      }
+          ...baseOptions.scales,
+          y: { min: 0, max: 100, title: { display: true, text: '% Remaining' } },
+        },
+      },
     });
   });
 
 // Page count chart
-fetch(`/api/history/${PRINTER_ID}/pages`)
+fetch(`/api/history/${PRINTER_ID}/pages?days=${DAYS_PARAM}`)
   .then(r => r.json())
   .then(data => {
     new Chart(document.getElementById('pageChart'), {
@@ -110,19 +268,20 @@ fetch(`/api/history/${PRINTER_ID}/pages`)
           label: 'Total Pages',
           data: data,
           borderColor: '#0d6efd',
-          backgroundColor: 'rgba(13,110,253,0.1)',
+          backgroundColor: 'rgba(13,110,253,0.10)',
           fill: true,
           tension: 0.3,
-          pointRadius: 2,
-        }]
+          pointRadius: 1.5,
+          pointHoverRadius: 4,
+        }],
       },
       options: {
-        ...commonOptions,
+        ...baseOptions,
         scales: {
-          ...commonOptions.scales,
-          y: { beginAtZero: false, title: { display: true, text: 'Page Count' } }
-        }
-      }
+          ...baseOptions.scales,
+          y: { beginAtZero: false, title: { display: true, text: 'Page Count' } },
+        },
+      },
     });
   });
 </script>

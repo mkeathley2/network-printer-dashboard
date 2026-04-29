@@ -17,6 +17,8 @@ from app.core.database import db
 from app.models import Printer, TelemetrySnapshot, SupplySnapshot
 from app.models.alert import AlertEvent
 from app.models.location import Location
+from app.utils.depletion import compute_supply_depletion
+from app.utils.regression import linear_regression
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +50,9 @@ def _all_active_printers():
     )
 
 
-def _linear_regression(xs: list[float], ys: list[float]) -> float:
-    """Return slope (units of y per unit of x) via least-squares. Returns 0 if insufficient data."""
-    n = len(xs)
-    if n < 2:
-        return 0.0
-    sum_x = sum(xs)
-    sum_y = sum(ys)
-    sum_xy = sum(x * y for x, y in zip(xs, ys))
-    sum_xx = sum(x * x for x in xs)
-    denom = n * sum_xx - sum_x * sum_x
-    if denom == 0:
-        return 0.0
-    return (n * sum_xy - sum_x * sum_y) / denom
+# Linear regression now lives in app.utils.regression (imported above) so the
+# history page and the predictive-toner scheduler can share the same helper.
+_linear_regression = linear_regression  # kept for backward compatibility
 
 
 # ---------------------------------------------------------------------------
@@ -349,44 +341,45 @@ def cost_per_page():
 def consumption_rate():
     days = request.args.get("days", "30")
     fmt = request.args.get("format", "html")
-    start_dt, end_dt = _date_range(days)
+    try:
+        window_days = int(days)
+    except (TypeError, ValueError):
+        window_days = 30
+    if window_days <= 0:
+        window_days = None  # all-time
 
     printers = _all_active_printers()
     rows = []
 
     for p in printers:
-        # Get all supply indexes seen for this printer recently
-        q = db.session.query(SupplySnapshot).filter(
-            SupplySnapshot.printer_id == p.id,
-            SupplySnapshot.level_pct.isnot(None),
-            SupplySnapshot.supply_type == "tonerCartridge",
-        )
-        if start_dt:
-            q = q.filter(SupplySnapshot.polled_at >= start_dt)
-        snaps = q.order_by(SupplySnapshot.polled_at).all()
+        # Find every distinct supply_index this printer has seen for tonerCartridges
+        indexes = [
+            row[0] for row in db.session.query(SupplySnapshot.supply_index)
+            .filter(
+                SupplySnapshot.printer_id == p.id,
+                SupplySnapshot.supply_type == "tonerCartridge",
+                SupplySnapshot.level_pct.isnot(None),
+            )
+            .distinct()
+            .all()
+        ]
 
-        # Group by supply_index
-        by_index: dict[int, list] = {}
-        for s in snaps:
-            by_index.setdefault(s.supply_index, []).append(s)
+        for idx in indexes:
+            # Replacement-aware regression: only fits to data since the last
+            # toner_replaced/drum_replaced event for this slot.
+            d = compute_supply_depletion(p.id, idx, db.session, window_days=window_days)
+            if not d or d["slope_pct_per_day"] >= 0:
+                continue  # not depleting / insufficient data
 
-        for idx, readings in by_index.items():
-            if len(readings) < 3:
-                continue
-            # Only look at downward trends (exclude the reading right after a replacement)
-            # Simple approach: fit regression on all points, skip if slope is positive
-            epoch = readings[0].polled_at.timestamp()
-            xs = [(r.polled_at.timestamp() - epoch) / 86400.0 for r in readings]  # days since first
-            ys = [float(r.level_pct) for r in readings]
-
-            slope = _linear_regression(xs, ys)  # % per day (negative = depleting)
-            if slope >= 0:
-                continue  # Not depleting
-
-            current_pct = ys[-1]
-            days_remaining = current_pct / abs(slope) if slope != 0 else None
-            color = readings[-1].supply_color or "unknown"
-            desc = readings[-1].supply_description or color.title() + " Toner"
+            # Pull the latest snapshot to get the current color/description
+            latest = (
+                db.session.query(SupplySnapshot)
+                .filter_by(printer_id=p.id, supply_index=idx)
+                .order_by(SupplySnapshot.polled_at.desc())
+                .first()
+            )
+            color = (latest.supply_color if latest else "unknown") or "unknown"
+            desc = (latest.supply_description if latest else "") or f"{color.title()} Toner"
 
             rows.append({
                 "printer_name": p.effective_name,
@@ -395,10 +388,10 @@ def consumption_rate():
                 "color": color,
                 "description": desc,
                 "supply_index": idx,
-                "pct_per_day": abs(slope),
-                "current_pct": current_pct,
-                "days_remaining": days_remaining,
-                "data_points": len(readings),
+                "pct_per_day": abs(d["slope_pct_per_day"]),
+                "current_pct": d["current_pct"],
+                "days_remaining": d["days_remaining"],
+                "data_points": d["data_points"],
             })
 
     rows.sort(key=lambda r: r["days_remaining"] if r["days_remaining"] is not None else 9999)
