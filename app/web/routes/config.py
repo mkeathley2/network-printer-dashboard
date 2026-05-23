@@ -995,19 +995,37 @@ def delete_agent(agent_id: int):
     agent = db.get_or_404(RemoteAgent, agent_id)
     force = request.form.get("force") == "1"
     agent_name = agent.name
+    never_deployed = agent.last_checkin_at is None
 
-    if force or agent.status == "stale":
-        # Hard-delete: agent is offline, remove the DB row and orphan remote printers
+    # Hard-delete in three cases:
+    #   * Explicit force flag from the UI
+    #   * Agent is marked stale (offline for > 2x its scan interval)
+    #   * Agent has never checked in (nothing remote to uninstall)
+    if force or agent.status == "stale" or never_deployed:
         db.session.query(Printer).filter_by(agent_id=agent_id).update(
             {"agent_id": None, "is_active": False}
         )
         db.session.delete(agent)
         db.session.commit()
-        audit(current_user.username, "agent_force_delete", agent_name,
-              f"Force-deleted offline agent '{agent_name}'")
-        flash(f"Agent '{agent_name}' deleted. Its printers have been deactivated.", "success")
+
+        if never_deployed:
+            audit(current_user.username, "agent_delete_undeployed", agent_name,
+                  f"Deleted never-deployed agent '{agent_name}'")
+            flash(
+                f"Agent '{agent_name}' deleted. It had never checked in, so no "
+                f"remote uninstall was needed.",
+                "success",
+            )
+        else:
+            audit(current_user.username, "agent_force_delete", agent_name,
+                  f"Force-deleted offline agent '{agent_name}'")
+            flash(
+                f"Agent '{agent_name}' deleted. Its printers have been deactivated.",
+                "success",
+            )
     else:
-        # Queue uninstall command — agent deletes itself and row is removed on ACK
+        # Active and previously checked-in → queue uninstall command, row goes
+        # away when the agent acknowledges on its next check-in.
         agent.pending_command = "uninstall"
         db.session.commit()
         audit(current_user.username, "agent_delete", agent_name,

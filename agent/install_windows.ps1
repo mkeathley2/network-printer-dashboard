@@ -1,11 +1,12 @@
 #Requires -RunAsAdministrator
 <#
 .SYNOPSIS
-    Network Printer Dashboard — Windows Agent Installer
+    Network Printer Dashboard - Windows Agent Installer (standalone .exe)
 
 .DESCRIPTION
-    Installs the printer agent as a Windows Scheduled Task (runs at startup,
-    restarts on failure). No external downloads required beyond Python.
+    Installs the printer agent as a Windows Scheduled Task running as SYSTEM.
+    Pulls a standalone printer_agent.exe directly from GitHub Releases - no
+    Python install required on the target machine.
 
 RMM one-liner (set the four env vars then run):
     $env:AGENT_URL="https://printers.yourco.com"; $env:AGENT_KEY="yourkey"
@@ -24,10 +25,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$TaskName   = "PrinterAgent"
-$InstallDir = "C:\PrinterAgent"
-$AgentScript = "$InstallDir\printer_agent.py"
+$TaskName    = "PrinterAgent"
+$InstallDir  = "C:\PrinterAgent"
+$AgentExe    = "$InstallDir\printer_agent.exe"
 $LogFile     = "$InstallDir\agent.log"
+$ExeUrl      = "https://github.com/mkeathley2/network-printer-dashboard/releases/latest/download/printer_agent.exe"
 
 function Write-Status($msg) { Write-Host "[PrinterAgent] $msg" -ForegroundColor Cyan }
 function Write-OK($msg)     { Write-Host "[OK] $msg" -ForegroundColor Green }
@@ -56,49 +58,18 @@ if (-not (Test-Path $InstallDir)) {
 }
 Write-OK "Install directory: $InstallDir"
 
-# --- Check / install Python ---
-$python = $null
-foreach ($candidate in @("python", "python3", "py")) {
-    try {
-        $ver = & $candidate --version 2>&1
-        if ($ver -match "Python 3\.[89]|Python 3\.1[0-9]") {
-            $python = $candidate
-            Write-OK "Found Python: $ver"
-            break
-        }
-    } catch { }
-}
-
-if (-not $python) {
-    Write-Status "Python 3.9+ not found. Installing via winget..."
-    try {
-        winget install --id Python.Python.3.11 --silent --accept-package-agreements --accept-source-agreements
-        # Refresh PATH
-        $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "Machine") + ";" +
-                    [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        $python = "python"
-        Write-OK "Python installed via winget."
-    } catch {
-        Write-Fail "Could not install Python automatically. Install Python 3.9+ manually then re-run."
-    }
-}
-
-# --- Install dependencies ---
-Write-Status "Installing Python dependencies (pysnmp, requests)..."
-& $python -m pip install --quiet --upgrade pysnmp requests
-Write-OK "Dependencies installed."
-
-# --- Download agent script ---
-Write-Status "Downloading agent script from $URL ..."
-$headers = @{ "X-Agent-Key" = $KEY }
+# --- Download the standalone .exe from GitHub Releases ---
+Write-Status "Downloading printer_agent.exe from GitHub Releases..."
+Write-Status "  $ExeUrl"
 try {
-    Invoke-WebRequest -Uri "$URL/api/agent/download/agent.py" `
-                      -Headers $headers `
-                      -OutFile $AgentScript `
-                      -UseBasicParsing
-    Write-OK "Agent script downloaded to $AgentScript"
+    # No auth needed - release assets are public.  Use TLS 1.2 to be safe
+    # on older Win10 builds where Server 2008 R2 defaults still bite.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri $ExeUrl -OutFile $AgentExe -UseBasicParsing
+    $sizeMB = [math]::Round((Get-Item $AgentExe).Length / 1MB, 1)
+    Write-OK "Downloaded printer_agent.exe ($sizeMB MB)"
 } catch {
-    Write-Fail "Failed to download agent script: $_"
+    Write-Fail "Failed to download printer_agent.exe: $_"
 }
 
 # --- Write config ---
@@ -112,22 +83,22 @@ $config = @{
     snmp_timeout          = 3
     snmp_retries          = 1
     scan_interval_minutes = 60
-    agent_version         = "1.0.0"
 } | ConvertTo-Json -Depth 5
 
-[System.IO.File]::WriteAllText("$InstallDir\agent_config.json", $config, (New-Object System.Text.UTF8Encoding $false))
+# Write WITHOUT a BOM - Python's json.load (called via load_config in the
+# agent) chokes on UTF-8 BOM unless the reader uses utf-8-sig.
+[System.IO.File]::WriteAllText(
+    "$InstallDir\agent_config.json",
+    $config,
+    (New-Object System.Text.UTF8Encoding $false)
+)
 Write-OK "Config written."
 
-# --- Locate Python executable ---
-$pythonExe = & $python -c "import sys; print(sys.executable)" 2>&1
-Write-Status "Python executable: $pythonExe"
-
-# --- Register as a Scheduled Task (runs at startup, restarts on failure) ---
+# --- Register as a Scheduled Task (runs as SYSTEM at startup, with restart-on-failure) ---
 Write-Status "Registering scheduled task '$TaskName'..."
 
 $action = New-ScheduledTaskAction `
-    -Execute $pythonExe `
-    -Argument "`"$AgentScript`"" `
+    -Execute $AgentExe `
     -WorkingDirectory $InstallDir
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -170,6 +141,7 @@ if ($taskState -eq "Running") {
 Write-Host ""
 Write-Host "Installation complete." -ForegroundColor Green
 Write-Host "  Install dir : $InstallDir"
+Write-Host "  Executable  : $AgentExe"
 Write-Host "  Log file    : $LogFile"
 Write-Host "  Dashboard   : $URL"
 Write-Host "  Subnet      : $SUBNET"
@@ -178,5 +150,5 @@ Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Yellow
 Write-Host "  Get-ScheduledTask -TaskName PrinterAgent           # check status"
 Write-Host "  Get-Content C:\PrinterAgent\agent.log -Tail 30    # view logs"
-Write-Host "  Start-ScheduledTask -TaskName PrinterAgent         # start"
+Write-Host "  Start-ScheduledTask -TaskName PrinterAgent         # trigger check-in"
 Write-Host "  Stop-ScheduledTask -TaskName PrinterAgent          # stop"

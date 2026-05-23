@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.17
+Version: v0.0.18
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -69,16 +69,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger("printer_agent")
 
-_SCRIPT_DIR = pathlib.Path(__file__).parent.resolve()
+# When PyInstaller bundles the agent into a single .exe, sys.frozen is True
+# and the "script" path lives inside a temp extraction folder.  Use the path
+# to the running .exe instead for everything (config, log, self-update target).
+IS_FROZEN = getattr(sys, "frozen", False)
+if IS_FROZEN:
+    _SELF_PATH = pathlib.Path(sys.executable).resolve()
+    _SCRIPT_DIR = _SELF_PATH.parent
+else:
+    _SELF_PATH = pathlib.Path(__file__).resolve()
+    _SCRIPT_DIR = _SELF_PATH.parent
+
 _CONFIG_PATH = _SCRIPT_DIR / "agent_config.json"
 _LOG_PATH = _SCRIPT_DIR / "agent.log"
+
+# GitHub Releases URL where every release's PyInstaller-built .exe lives.
+# Used by self_update() when running in frozen mode.  Always pulls the latest
+# tagged release.
+_EXE_RELEASE_URL = (
+    "https://github.com/mkeathley2/network-printer-dashboard"
+    "/releases/latest/download/printer_agent.exe"
+)
 
 # File handler (appended once config dir is known)
 _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.17"
+AGENT_VERSION = "v0.0.18"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -579,7 +597,29 @@ def checkin(printers: list[dict], errors: list[dict], cfg: dict) -> Optional[str
 # ---------------------------------------------------------------------------
 
 def self_update(cfg: dict) -> None:
-    """Download new agent.py from the dashboard and restart the service."""
+    """
+    Download a new version of the agent and restart the service.
+
+    Two code paths:
+
+    * **Frozen .exe** (Windows, PyInstaller-built): pull the latest
+      ``printer_agent.exe`` from GitHub Releases.  The running .exe holds an
+      OS-level lock on its own file, so we download to ``printer_agent.exe.new``,
+      write a small batch helper that stops the scheduled task, swaps the file,
+      and restarts the task — then exit ourselves so the helper can take over.
+
+    * **Script .py** (Pi/Linux, or local dev): download ``agent.py`` from the
+      dashboard, atomic-rename into place, restart the systemd service or
+      scheduled task.
+    """
+    if IS_FROZEN:
+        _self_update_frozen(cfg)
+    else:
+        _self_update_script(cfg)
+
+
+def _self_update_script(cfg: dict) -> None:
+    """The original .py-script update path (Pi/Linux)."""
     url = cfg["dashboard_url"].rstrip("/") + "/api/agent/download/agent.py"
     try:
         resp = requests.get(
@@ -592,10 +632,9 @@ def self_update(cfg: dict) -> None:
         logger.error("Self-update download failed: %s", exc)
         return
 
-    new_path = pathlib.Path(__file__).with_suffix(".py.new")
+    new_path = _SELF_PATH.with_suffix(".py.new")
     new_path.write_bytes(resp.content)
-    # Atomic replace
-    new_path.replace(pathlib.Path(__file__))
+    new_path.replace(_SELF_PATH)
     logger.info("Agent script updated. Restarting service…")
 
     system = platform.system()
@@ -608,6 +647,72 @@ def self_update(cfg: dict) -> None:
             subprocess.Popen(["sudo", "systemctl", "restart", "printer-agent"])
     except Exception as exc:
         logger.error("Service restart failed: %s — please restart manually", exc)
+    sys.exit(0)
+
+
+def _self_update_frozen(cfg: dict) -> None:
+    """Download the new .exe from GitHub Releases and trigger a swap-on-restart."""
+    logger.info("Self-update (frozen): fetching %s", _EXE_RELEASE_URL)
+    try:
+        # No agent key needed — GitHub release assets are public.
+        # Follow redirects (releases/latest/download/... resolves via a 302).
+        resp = requests.get(_EXE_RELEASE_URL, timeout=300, allow_redirects=True)
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.error("Self-update download failed: %s", exc)
+        return
+
+    if len(resp.content) < 1_000_000:
+        logger.error(
+            "Downloaded .exe is suspiciously small (%d bytes) — aborting update",
+            len(resp.content),
+        )
+        return
+
+    new_exe = _SELF_PATH.with_name(_SELF_PATH.name + ".new")
+    try:
+        new_exe.write_bytes(resp.content)
+    except Exception as exc:
+        logger.error("Could not write new .exe to %s: %s", new_exe, exc)
+        return
+
+    logger.info("Downloaded new .exe (%d bytes) — writing swap helper…", len(resp.content))
+
+    # The running .exe cannot overwrite itself while it has the file lock.
+    # Write a small batch script that waits, swaps, and restarts the task,
+    # then spawn it detached so it survives our exit.
+    helper_path = _SCRIPT_DIR / "_update_helper.cmd"
+    target_name = _SELF_PATH.name
+    helper_path.write_text(
+        "@echo off\r\n"
+        "rem  Printer Dashboard agent self-update helper\r\n"
+        "rem  Waits for printer_agent.exe to exit, swaps in the new build,\r\n"
+        "rem  then restarts the scheduled task.\r\n"
+        f'schtasks /End /TN "PrinterAgent" >nul 2>&1\r\n'
+        "timeout /t 3 /nobreak >nul\r\n"
+        f'move /Y "%~dp0{target_name}.new" "%~dp0{target_name}" >nul\r\n'
+        'schtasks /Run /TN "PrinterAgent" >nul 2>&1\r\n'
+        'del "%~f0"\r\n',
+        encoding="ascii",
+    )
+
+    # Spawn detached so this process can exit cleanly.
+    DETACHED_PROCESS = 0x00000008
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    try:
+        subprocess.Popen(
+            ["cmd", "/c", str(helper_path)],
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        logger.info("Update helper spawned. Exiting so the swap can complete…")
+    except Exception as exc:
+        logger.error("Could not spawn update helper: %s — please restart manually", exc)
+        return
+
     sys.exit(0)
 
 

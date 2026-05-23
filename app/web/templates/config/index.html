@@ -1070,7 +1070,11 @@ function confirmReset(form) {
         Copy
       </button>
     </div>
-    <div class="form-text">Paste this into your RMM as a PowerShell script. Set URL, KEY, SUBNET, LOCATION as RMM variables.</div>
+    <div class="form-text">
+      Paste this into an <strong>elevated PowerShell</strong> (or your RMM as a PowerShell script).
+      <span class="text-success"><i class="bi bi-check-circle-fill"></i> No Python required</span> —
+      the installer downloads a standalone <code>printer_agent.exe</code> (~30 MB) from GitHub Releases.
+    </div>
   </div>
 
   <div class="mb-1">
@@ -1247,6 +1251,16 @@ function confirmReset(form) {
                     <input type="hidden" name="force" value="1">
                     <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
                             title="Force Delete (agent offline)">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                  {% elif agent.last_checkin_at is none %}
+                  <form method="POST"
+                        action="{{ url_for('config.delete_agent', agent_id=agent.id) }}"
+                        onsubmit="return confirm('Delete {{ agent.name }}? It has never checked in, so no remote uninstall is needed.')">
+                    <input type="hidden" name="force" value="1">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0 px-1"
+                            title="Delete (never deployed — no remote uninstall needed)">
                       <i class="bi bi-trash"></i>
                     </button>
                   </form>

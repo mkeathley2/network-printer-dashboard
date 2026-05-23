@@ -68,13 +68,15 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 
 ### Remote Agents
 For monitoring printers at sites the dashboard server can't reach directly (separate networks, branch offices, etc.):
-- Lightweight standalone Python agent (Windows or Raspberry Pi)
+- Standalone agent: a single **`printer_agent.exe`** on Windows (no Python install required — fully self-contained, ~30 MB) and a Python script on Raspberry Pi / Linux
+- The Windows .exe is auto-built by GitHub Actions on every release and downloaded directly from the GitHub Releases page during install
 - Reports back to the central dashboard over HTTPS — no VPN or port-forwarding required
-- One-line install command (PowerShell on Windows, bash on Pi)
+- One-line install command (PowerShell on Windows, bash on Pi). Works cleanly from ConnectWise Backstage / RMM tools running as SYSTEM
 - **Auto-detects local subnet** if not specified — uses OS routing tables
-- **Auto-updates** when the dashboard version changes
+- **Auto-updates** when the dashboard version changes (Windows uses a swap-on-restart helper to replace the running .exe)
 - Subnet, scan interval, and location editable from the dashboard
 - Stale-detection alerts when an agent stops checking in
+- Agents that have never checked in can be deleted directly from the dashboard (no need to wait for a remote uninstall ACK that will never come)
 - Tailscale Funnel works great as the public HTTPS endpoint (free, no domain required)
 
 ### User Accounts & Security

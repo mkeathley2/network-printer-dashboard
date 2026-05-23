@@ -281,6 +281,18 @@
             networks the dashboard server can't reach directly.
           </p>
 
+          <h3>Distribution: Windows .exe, Linux/Pi .py</h3>
+          <p>
+            On Windows the agent is a <strong>standalone <code>printer_agent.exe</code></strong> (about
+            30 MB) — no Python install required on the target machine. GitHub Actions builds it
+            automatically on every release; the installer pulls it directly from GitHub Releases.
+            On Raspberry Pi / Linux the agent is a small Python script.
+          </p>
+          <p class="small text-muted">
+            Because the .exe is launched by Task Scheduler running as SYSTEM (not by Explorer), there is
+            no Windows SmartScreen prompt — even when deploying via ConnectWise Backstage or another RMM.
+          </p>
+
           <h3>Adding an agent</h3>
           <ol>
             <li>Go to <strong>Config → Remote Agents</strong>.</li>
@@ -295,21 +307,31 @@
           <p>Each agent row in the table has action buttons:</p>
           <ul>
             <li><i class="bi bi-arrow-clockwise"></i> <strong>Rescan Now</strong> — tell the agent to scan immediately</li>
-            <li><i class="bi bi-cloud-download"></i> <strong>Force Update</strong> — push the latest agent script</li>
+            <li><i class="bi bi-cloud-download"></i> <strong>Force Update</strong> — push the latest agent version</li>
             <li><i class="bi bi-clock"></i> <strong>Edit Interval</strong> — change scan frequency</li>
             <li><i class="bi bi-diagram-3"></i> <strong>Edit Subnet</strong> — push a new subnet (blank = auto-detect)</li>
             <li><i class="bi bi-geo-alt"></i> <strong>Assign Location</strong></li>
             <li><i class="bi bi-key"></i> <strong>Regenerate API Key</strong></li>
-            <li><i class="bi bi-trash"></i> <strong>Delete</strong> — queues uninstall on next check-in</li>
+            <li>
+              <i class="bi bi-trash"></i> <strong>Delete</strong> —
+              if the agent has checked in: queues an uninstall on next check-in;
+              if the agent has never checked in OR is offline (stale): immediately hard-deletes the row.
+            </li>
           </ul>
 
           <h3>Auto-update</h3>
           <p>
             When the dashboard and an agent fall out of version sync, the dashboard auto-queues an
-            update command on the next check-in. The agent downloads the new script and restarts
-            itself via its scheduled task / systemd service. An <strong>Outdated</strong> badge
-            appears in the Version column, and a <strong>Update All Outdated</strong> button in the
-            agents card header lets you push updates to multiple agents at once.
+            update command on the next check-in. An <strong>Outdated</strong> badge appears in the
+            Version column, and the <strong>Update All Outdated</strong> button in the agents card
+            header lets you push updates to multiple agents at once.
+          </p>
+          <p>
+            On Windows the agent can't directly overwrite its own running .exe, so it downloads
+            <code>printer_agent.exe.new</code>, writes a tiny <code>_update_helper.cmd</code> that
+            stops the scheduled task, swaps the file, and restarts the task, and then exits to let
+            the helper finish. Total downtime: about 5 seconds. On Linux/Pi the agent simply
+            rewrites itself and restarts the systemd service.
           </p>
 
           <h3>Manually triggering a check-in</h3>
@@ -466,6 +488,13 @@ docker compose up --build -d</code></pre>
           <p>
             Log into the agent machine and trigger a check-in manually (see section 6 above). The agent
             will receive the queued update command on the next successful check-in.
+          </p>
+
+          <h3>I created an agent but never deployed it — how do I remove it?</h3>
+          <p>
+            Just click the <strong>Delete</strong> button on its row in the agents table. Agents that
+            have never checked in are hard-deleted immediately (the old behavior of waiting for a remote
+            uninstall ACK only applies to agents that have actually been deployed and are checking in).
           </p>
 
           <h3>An update failed — how do I roll back?</h3>

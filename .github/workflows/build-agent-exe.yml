@@ -1,0 +1,67 @@
+name: Build Agent EXE
+
+# Triggered after a GitHub Release is created.  Builds a standalone
+# printer_agent.exe via PyInstaller on a Windows runner and attaches it
+# to the release as a downloadable asset.
+#
+# The .exe is what Windows installs use — it includes a bundled Python
+# interpreter plus pysnmp + requests, so target machines do NOT need
+# Python installed.
+
+on:
+  release:
+    types: [created]
+  # Allow manual rebuilds against any release tag (e.g. after a workflow fix)
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing release tag to attach the .exe to (e.g. v0.0.18)'
+        required: true
+
+permissions:
+  contents: write   # needed for action-gh-release to attach assets
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller "pysnmp>=6.2" requests
+
+      - name: Build printer_agent.exe
+        run: |
+          pyinstaller --onefile --name printer_agent `
+            --collect-all pysnmp `
+            --hidden-import pysnmp.smi.mibs `
+            --hidden-import pysnmp.smi.mibs.instances `
+            --hidden-import pyasn1 `
+            --hidden-import pyasn1.codec.ber `
+            --hidden-import pyasn1.codec.der `
+            agent/printer_agent.py
+
+      - name: Show resulting binary
+        run: |
+          Get-Item dist/printer_agent.exe | Format-List Name, Length, LastWriteTime
+
+      - name: Attach .exe to the release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/printer_agent.exe
+
+      - name: Attach .exe to the manually-specified release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag }}
+          files: dist/printer_agent.exe
