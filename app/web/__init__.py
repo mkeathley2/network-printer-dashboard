@@ -145,6 +145,8 @@ def _run_migrations() -> None:
         "ALTER TABLE alert_state ADD COLUMN predictive_alert_sent BOOLEAN NOT NULL DEFAULT 0",
         # --- Temp password / forced change feature (v0.0.9) ---
         "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0",
+        # --- Auto helpdesk ticket on critical (v0.0.19) ---
+        "ALTER TABLE alert_state ADD COLUMN critical_ticket_sent BOOLEAN NOT NULL DEFAULT 0",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:

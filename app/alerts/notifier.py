@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import smtplib
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
+from email import encoders
+from typing import Iterable, Optional
 
 from app.core.config import config
 from app.snmp.normalizer import SupplyData
@@ -96,20 +98,49 @@ def get_smtp_settings() -> dict:
         }
 
 
-def _send_email(subject: str, body_text: str, body_html: str, recipients: list[str]) -> tuple[bool, str]:
-    """Core send logic. Returns (success, message)."""
+def _send_email(
+    subject: str,
+    body_text: str,
+    body_html: str,
+    recipients: list[str],
+    attachments: Optional[Iterable[tuple[str, bytes, str]]] = None,
+) -> tuple[bool, str]:
+    """
+    Core send logic. Returns (success, message).
+
+    ``attachments`` is an optional iterable of ``(filename, content_bytes, mime_subtype)``
+    tuples — used by the scheduled-report sender to attach CSV files.
+    For text formats pass mime_subtype="csv" (will be sent as text/csv).
+    """
     smtp = get_smtp_settings()
     if not smtp["enabled"]:
         return False, "SMTP is not configured."
     if not recipients:
         return False, "No recipients specified."
 
-    msg = MIMEMultipart("alternative")
+    # If we have attachments we need a "mixed" outer container with the
+    # alternative-text/html inside.  Otherwise the simpler "alternative"
+    # message is enough.
+    if attachments:
+        msg = MIMEMultipart("mixed")
+        alt = MIMEMultipart("alternative")
+        alt.attach(MIMEText(body_text, "plain"))
+        alt.attach(MIMEText(body_html, "html"))
+        msg.attach(alt)
+        for filename, content, subtype in attachments:
+            part = MIMEBase("text", subtype) if subtype in ("csv", "plain") else MIMEBase("application", subtype)
+            part.set_payload(content)
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f'attachment; filename="{filename}"')
+            msg.attach(part)
+    else:
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body_text, "plain"))
+        msg.attach(MIMEText(body_html, "html"))
+
     msg["Subject"] = subject
     msg["From"] = smtp["from_addr"]
     msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(body_text, "plain"))
-    msg.attach(MIMEText(body_html, "html"))
 
     try:
         auth_mode = smtp.get("auth_mode", "starttls")
@@ -351,6 +382,31 @@ def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str) -> tu
     <p style="background:#f8f9fa;padding:10px;border-left:4px solid #3498db;">{note}</p>
     """ if note.strip() else ""
 
+    # Optional dashboard links
+    from app.utils.dashboard_url import printer_url, history_url
+    detail_url = printer_url(printer.id)
+    hist_url = history_url(printer.id)
+    dash_links_text = ""
+    dash_links_html = ""
+    if detail_url or hist_url:
+        parts_text = []
+        parts_html = ['<p style="margin-top:16px;">']
+        if detail_url:
+            parts_text.append(f"Printer details : {detail_url}")
+            parts_html.append(
+                f'<a href="{detail_url}" style="background:#0d6efd;color:#fff;padding:8px 14px;'
+                f'text-decoration:none;border-radius:4px;font-weight:600;margin-right:8px;">View Printer</a>'
+            )
+        if hist_url:
+            parts_text.append(f"History page    : {hist_url}")
+            parts_html.append(
+                f'<a href="{hist_url}" style="background:#6c757d;color:#fff;padding:8px 14px;'
+                f'text-decoration:none;border-radius:4px;font-weight:600;">View History</a>'
+            )
+        parts_html.append("</p>")
+        dash_links_text = "\n" + "\n".join(parts_text) + "\n"
+        dash_links_html = "\n".join(parts_html)
+
     subject = f"[Printer Ticket] {printer_name} ({printer.ip_address})"
 
     body_text = f"""\
@@ -365,7 +421,7 @@ Status       : {status}
 {extra_text}
 Supply Levels:
 {supply_rows_text or '  No supply data available.'}
-{note_section}
+{note_section}{dash_links_text}
 This ticket was created from the Network Printer Dashboard.
 """
 
@@ -391,6 +447,7 @@ This ticket was created from the Network Printer Dashboard.
     </tbody>
   </table>
   {note_html}
+  {dash_links_html}
   <hr/>
   <p style="font-size:12px;color:#999;">Created from the <strong>Network Printer Dashboard</strong>.</p>
 </body></html>"""
@@ -435,6 +492,18 @@ def _build_alert_message(event_type, printer, supply, level_pct):
 
     subject = f"[Printer Alert] {label} — {printer_name}"
 
+    # Optional dashboard link — only included when public_url is configured
+    from app.utils.dashboard_url import printer_url
+    detail_url = printer_url(printer.id)
+    link_text = f"\nView in Dashboard : {detail_url}" if detail_url else ""
+    link_html = (
+        f'<p style="margin-top:12px;">'
+        f'<a href="{detail_url}" style="background:#0d6efd;color:#fff;padding:8px 14px;'
+        f'text-decoration:none;border-radius:4px;font-weight:600;">View Printer in Dashboard</a>'
+        f'</p>'
+        if detail_url else ""
+    )
+
     body_text = f"""\
 Printer Alert: {label}
 
@@ -442,6 +511,7 @@ Printer Name : {printer_name}
 IP Address   : {printer_ip}
 Model        : {printer_model}
 {extra_text}{supply_info}
+{link_text}
 
 This is an automated message from the Network Printer Dashboard.
 """
@@ -457,6 +527,7 @@ This is an automated message from the Network Printer Dashboard.
     {extra_html}
     {supply_info_html}
   </table>
+  {link_html}
   <hr/>
   <p style="font-size:12px;color:#999;">
     Automated alert from the <strong>Network Printer Dashboard</strong>.

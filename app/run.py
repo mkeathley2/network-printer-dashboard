@@ -269,6 +269,40 @@ scheduler.add_job(
     replace_existing=True,
 )
 
+
+# ---------------------------------------------------------------------------
+# Scheduled report email jobs (daily / weekly / monthly)
+# ---------------------------------------------------------------------------
+def _send_reports_for(frequency: str) -> None:
+    """Wrap so each cron firing runs inside the Flask app context."""
+    with app.app_context():
+        try:
+            from app.alerts.reports_email import send_scheduled_reports
+            send_scheduled_reports(frequency)
+        except Exception:
+            logger.exception("Error during scheduled-report run (%s)", frequency)
+
+
+# All three jobs fire at 7 AM (site timezone is the container TZ — for a Linux
+# VM that's typically UTC unless the host overrides).  Hourly precision is
+# enough; users won't notice 7:00 vs 7:00:05.
+scheduler.add_job(
+    _send_reports_for, args=["daily"],
+    trigger="cron", hour=7, minute=0,
+    id="reports_daily", replace_existing=True,
+)
+scheduler.add_job(
+    _send_reports_for, args=["weekly"],
+    trigger="cron", day_of_week="mon", hour=7, minute=0,
+    id="reports_weekly", replace_existing=True,
+)
+scheduler.add_job(
+    _send_reports_for, args=["monthly"],
+    trigger="cron", day=1, hour=7, minute=0,
+    id="reports_monthly", replace_existing=True,
+)
+
+
 scheduler.start()
 logger.info("Scheduler started. Poll interval: %d minutes", _interval)
 

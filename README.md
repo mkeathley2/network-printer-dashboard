@@ -57,9 +57,20 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - Email alerts on toner low (warning), toner critical, toner replaced, drum events, and printer offline
 - Per-event-type toggles
 - Site-wide and per-printer warning/critical thresholds
+- **Auto-helpdesk-ticket on critical** — when any toner or drum hits the critical threshold, the dashboard can automatically file a helpdesk ticket (in addition to the standard alert email). One ticket per supply lifecycle; resets when the cartridge is replaced. Toggle on/off in Config → Alert Settings.
 - **Predictive Toner Alerts** — hourly background job uses linear regression on supply history to predict depletion; auto-creates a helpdesk ticket when a cartridge will run out within N days (configurable)
 - One helpdesk ticket per supply lifecycle (deduped — no spam)
 - "Resend Alerts" button on each printer to re-fire active alerts after fixing email config
+- Every alert email and helpdesk ticket now includes a **"View Printer in Dashboard"** link when `public_url` is configured (under Config → Remote Agents)
+
+### Scheduled Report Emails
+- Schedule any of the 5 tabular reports (Print Volume, Toner Cost, Cost Per Page, Consumption Rate, Reliability) to be emailed automatically
+- Per-report frequency: Off, Daily, Weekly (Monday), or Monthly (1st of month)
+- Sent at 7 AM site-local time
+- One global recipient email
+- HTML-styled email with the top 50 rows in-line + full data as a CSV attachment
+- One-click "Send Now" test button for each report so you can preview without waiting
+- "View Full Report" button in each email links back to the dashboard
 
 ### Network Discovery
 - Scan any CIDR range to find SNMP-responsive printers

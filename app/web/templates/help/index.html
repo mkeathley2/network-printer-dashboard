@@ -212,6 +212,23 @@
             <strong>Emails only send if SMTP is configured.</strong> If you're not getting alert emails,
             start with <em>Config → Email / SMTP</em> and send a test email from that page.
           </div>
+
+          <h3>Dashboard links in emails</h3>
+          <p>
+            Every alert email and helpdesk ticket includes a <strong>View Printer in Dashboard</strong>
+            link (or "View Printer" + "View History" for tickets) when the public URL is set under
+            Config → Remote Agents. The link uses the same Tailscale Funnel / public URL you've
+            configured, so recipients can jump straight to the printer with one click.
+          </p>
+
+          <h3>Auto-helpdesk-ticket on critical {% if current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            When enabled (Config → Alert Settings), the dashboard automatically files a helpdesk
+            ticket the moment any toner or drum hits the critical threshold &mdash; alongside the
+            normal critical email. It only fires <strong>once per supply lifecycle</strong>, so a
+            printer that's been at 4% for weeks won't generate duplicate tickets. The cycle resets
+            on cartridge replacement.
+          </p>
         </section>
 
         <!-- ========== 5. REPORTS ========== -->
@@ -267,6 +284,23 @@
             Admin: open a printer detail page, scroll to <strong>Toner Replacement History</strong>,
             and fill in the <em>Cost</em> field for a replacement row. The cost immediately flows into
             the Toner Cost and Cost Per Page reports.
+          </p>
+
+          <h3>Scheduling email reports {% if current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            Any of these reports (except "Page Count Over Time", which is chart-only) can be emailed
+            automatically on a schedule. Admins: go to <strong>Config → Alert Settings → Scheduled Report
+            Emails</strong>, set a recipient address, and pick a frequency per report:
+          </p>
+          <ul>
+            <li><strong>Daily</strong> &mdash; 7 AM site-local time, looking back 24 hours</li>
+            <li><strong>Weekly</strong> &mdash; Monday at 7 AM, looking back 7 days</li>
+            <li><strong>Monthly</strong> &mdash; 1st of the month at 7 AM, looking back 30 days</li>
+          </ul>
+          <p>
+            Each email contains the top 50 rows as a styled HTML table plus the <strong>full data as a
+            CSV attachment</strong>, with a "View Full Report" button linking back to the dashboard.
+            Each row has a "Send Now" button to test the email immediately (uses the weekly window).
           </p>
         </section>
 
@@ -413,6 +447,23 @@ sudo systemctl restart printer-agent</code></pre>
             readings to predict when each cartridge will run out. If predicted to be empty within N days
             (default 7), a helpdesk ticket is auto-generated — once per supply lifecycle. Set the days
             threshold and minimum data-point count from the Alert Settings tab.
+          </p>
+
+          <h3>Auto-Ticket on Critical</h3>
+          <p>
+            On the Alert Settings tab, the <strong>Auto-Ticket on Critical</strong> card has a single
+            on/off toggle. When ON, every toner or drum that crosses below the critical threshold
+            generates a helpdesk ticket alongside the alert email. Deduped per supply lifecycle
+            (resets on cartridge replacement). Requires a helpdesk email on the SMTP tab.
+          </p>
+
+          <h3>Scheduled Report Emails</h3>
+          <p>
+            The <strong>Scheduled Report Emails</strong> card on the Alert Settings tab lets you
+            schedule any of the five tabular reports. Set a recipient email, pick a frequency per
+            report (Off, Daily, Weekly, Monthly), and the dashboard handles the rest. Each row also
+            has a <strong>Send Now</strong> button so you can test what the email will look like
+            without waiting for the schedule.
           </p>
 
           <h3>Locations</h3>

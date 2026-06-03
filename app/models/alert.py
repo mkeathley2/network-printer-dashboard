@@ -74,6 +74,10 @@ class AlertState(Base):
     email_sent_critical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     last_level_pct: Mapped[Optional[int]] = mapped_column(SmallInteger)
     predictive_alert_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Set True once an auto-helpdesk-ticket has been filed for the current
+    # critical lifecycle. Reset to False when the supply is replaced so a
+    # fresh ticket can fire next time it goes critical.
+    critical_ticket_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now(), nullable=False
     )

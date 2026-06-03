@@ -731,6 +731,97 @@
   </div>
 </div>
 
+<!-- Auto Helpdesk Ticket on Critical -->
+<div class="card mt-3" style="max-width:520px;">
+  <div class="card-header fw-semibold"><i class="bi bi-ticket-perforated me-2"></i>Auto-Ticket on Critical</div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      When a toner or drum hits the critical threshold, automatically create a helpdesk ticket
+      (in addition to the alert email). Sent <strong>once per supply</strong> — the same cartridge
+      won't generate a duplicate ticket. Resets when the supply is replaced. Requires
+      <strong>helpdesk email</strong> to be set on the SMTP tab.
+    </p>
+    <form method="POST" action="{{ url_for('config.save_auto_ticket_settings') }}">
+      <div class="form-check form-switch mb-3">
+        <input class="form-check-input" type="checkbox"
+               name="auto_ticket_on_critical_enabled" id="auto_ticket_on_critical_enabled"
+               {% if auto_ticket_settings.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="auto_ticket_on_critical_enabled">
+          Enable auto-ticket on toner/drum critical
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-save me-1"></i>Save
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Scheduled Report Emails -->
+<div class="card mt-3" style="max-width:700px;">
+  <div class="card-header fw-semibold"><i class="bi bi-envelope-paper me-2"></i>Scheduled Report Emails</div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      Each enabled report is emailed as a styled HTML table with the full CSV attached.
+      Daily reports send at 7 AM site-local time, weekly on Monday at 7 AM, monthly on the 1st at 7 AM.
+    </p>
+    <form method="POST" action="{{ url_for('config.save_report_schedule_settings') }}">
+      <div class="mb-3">
+        <label class="form-label small fw-semibold">Recipient Email</label>
+        <input type="email" name="report_recipient" class="form-control form-control-sm"
+               placeholder="reports@example.com"
+               value="{{ report_settings.recipient }}" style="max-width:340px;">
+        <div class="form-text small">Leave blank to disable all scheduled reports.</div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>Report</th>
+              <th style="width:160px;">Frequency</th>
+              <th style="width:120px;">Send Now</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in report_settings.reports %}
+            <tr>
+              <td>
+                <strong>{{ r.title }}</strong><br>
+                <a href="{{ r.path }}" class="small text-muted">{{ r.path }}</a>
+              </td>
+              <td>
+                <select name="report_schedule_{{ r.key }}" class="form-select form-select-sm">
+                  <option value="off"     {% if r.schedule == 'off' %}selected{% endif %}>Off</option>
+                  <option value="daily"   {% if r.schedule == 'daily' %}selected{% endif %}>Daily</option>
+                  <option value="weekly"  {% if r.schedule == 'weekly' %}selected{% endif %}>Weekly (Mon)</option>
+                  <option value="monthly" {% if r.schedule == 'monthly' %}selected{% endif %}>Monthly (1st)</option>
+                </select>
+              </td>
+              <td>
+                <button type="submit" name="test_send" value="{{ r.key }}"
+                        class="btn btn-sm btn-outline-secondary"
+                        {% if not report_settings.recipient %}disabled
+                        title="Set a recipient first"{% else %}
+                        title="Send this report to {{ report_settings.recipient }} right now (uses weekly window)"{% endif %}>
+                  <i class="bi bi-send"></i>
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="mt-3">
+        <button type="submit" class="btn btn-primary btn-sm">
+          <i class="bi bi-save me-1"></i>Save Report Schedule
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ===================== REMOVED PRINTERS TAB ===================== -->
 {% elif active_tab == 'removed' %}
 <div class="card">

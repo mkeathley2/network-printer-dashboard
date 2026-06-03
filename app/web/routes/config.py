@@ -157,6 +157,28 @@ def index():
         "min_points": int(_get_setting("predictive_toner_min_points", "5")),
     }
 
+    # Auto-helpdesk-ticket on critical settings
+    auto_ticket_settings = {
+        "enabled": _get_setting("auto_ticket_on_critical_enabled", "0") == "1",
+    }
+
+    # Scheduled reports settings — recipient + per-report frequency
+    report_settings = None
+    if tab == "alerts":
+        from app.web.routes.reports import REPORT_REGISTRY
+        report_settings = {
+            "recipient": _get_setting("report_recipient", ""),
+            "reports": [
+                {
+                    "key": r["key"],
+                    "title": r["title"],
+                    "path": r["path"],
+                    "schedule": _get_setting(f"report_schedule_{r['key']}", "off"),
+                }
+                for r in REPORT_REGISTRY
+            ],
+        }
+
     # Updates tab (current_version always loaded — also used by agents tab for version badge)
     from app.utils.version import get_current_version, get_latest_release, update_available
     current_version = get_current_version()
@@ -201,6 +223,8 @@ def index():
         alert_settings=alert_settings,
         alert_toggle_defs=ALERT_TOGGLE_DEFS,
         predictive_settings=predictive_settings,
+        auto_ticket_settings=auto_ticket_settings,
+        report_settings=report_settings,
         current_version=current_version,
         latest_release=latest_release,
         has_update=has_update,
@@ -246,6 +270,87 @@ def save_predictive_settings():
           f"Predictive toner alerts {'enabled' if enabled == '1' else 'disabled'}, "
           f"threshold={days}d, min_points={min_points}")
     flash("Predictive toner settings saved.", "success")
+    return redirect(url_for("config.index", tab="alerts"))
+
+
+# ---------------------------------------------------------------------------
+# Auto-helpdesk-ticket on critical (toggle)
+# ---------------------------------------------------------------------------
+@bp.route("/save-auto-ticket-settings", methods=["POST"])
+@admin_required
+def save_auto_ticket_settings():
+    enabled = "1" if request.form.get("auto_ticket_on_critical_enabled") else "0"
+    _set_setting("auto_ticket_on_critical_enabled", enabled)
+    db.session.commit()
+    audit(current_user.username, "config_auto_ticket", "site",
+          f"Auto-ticket on critical {'enabled' if enabled == '1' else 'disabled'}")
+    flash(
+        "Auto-helpdesk-ticket on critical is now ENABLED. Each supply that hits critical "
+        "will fire one ticket; the cycle resets on replacement."
+        if enabled == "1" else
+        "Auto-helpdesk-ticket on critical is now DISABLED.",
+        "success",
+    )
+    return redirect(url_for("config.index", tab="alerts"))
+
+
+# ---------------------------------------------------------------------------
+# Scheduled report email settings + "Send Now" test trigger
+# ---------------------------------------------------------------------------
+@bp.route("/save-report-schedule-settings", methods=["POST"])
+@admin_required
+def save_report_schedule_settings():
+    from app.web.routes.reports import REPORT_REGISTRY
+
+    # If the user clicked a "Send Now" test button, the form submits with a
+    # test_send=<report_key> value.  Send that one report immediately and skip
+    # the save flow.
+    test_key = request.form.get("test_send")
+    if test_key:
+        recipient = _get_setting("report_recipient", "").strip()
+        if not recipient:
+            flash("Set a recipient email first, then click Send Now.", "warning")
+            return redirect(url_for("config.index", tab="alerts"))
+        try:
+            from app.alerts.reports_email import send_one_report
+            ok, msg = send_one_report(test_key, recipient, "weekly")
+            if ok:
+                flash(f"Test report '{test_key}' sent to {recipient}.", "success")
+            else:
+                flash(f"Test report failed: {msg}", "danger")
+        except Exception as exc:
+            logger.exception("Test report send failed")
+            flash(f"Test report failed: {exc}", "danger")
+        return redirect(url_for("config.index", tab="alerts"))
+
+    # Normal save flow
+    recipient = (request.form.get("report_recipient") or "").strip()
+    _set_setting("report_recipient", recipient)
+
+    schedules_changed = []
+    for r in REPORT_REGISTRY:
+        key = f"report_schedule_{r['key']}"
+        val = (request.form.get(key) or "off").strip().lower()
+        if val not in ("off", "daily", "weekly", "monthly"):
+            val = "off"
+        _set_setting(key, val)
+        if val != "off":
+            schedules_changed.append(f"{r['title']}={val}")
+
+    db.session.commit()
+    audit(current_user.username, "config_report_schedule", "site",
+          f"recipient={recipient or '(none)'}; " + (", ".join(schedules_changed) or "all disabled"))
+
+    if not recipient:
+        flash("Report schedule saved. (No recipient set, so nothing will send.)", "info")
+    elif not schedules_changed:
+        flash(f"Report schedule saved. No reports are currently enabled.", "info")
+    else:
+        flash(
+            f"Report schedule saved. Sending {len(schedules_changed)} report(s) to {recipient} "
+            f"at the configured intervals.",
+            "success",
+        )
     return redirect(url_for("config.index", tab="alerts"))
 
 

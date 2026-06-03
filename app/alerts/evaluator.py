@@ -34,6 +34,7 @@ def _get_or_create_state(printer_id: int, supply_index: int, db_session: Session
             alert_level="none",
             email_sent_warning=False,
             email_sent_critical=False,
+            critical_ticket_sent=False,
         )
         db_session.add(state)
         db_session.flush()
@@ -104,9 +105,13 @@ def _evaluate_supply(printer: Printer, supply: SupplyData, db_session: Session) 
         sent = _send(event_type, printer, supply, current_pct)
         _log_event(printer.id, event_type, supply, current_pct, sent, db_session)
 
-        # Reset alert state for this lifecycle
+        # Reset alert state for this lifecycle (fresh cartridge → fresh
+        # critical-ticket budget, fresh predictive-alert budget, fresh email
+        # dedup flags).
         state.email_sent_warning = False
         state.email_sent_critical = False
+        state.critical_ticket_sent = False
+        state.predictive_alert_sent = False
         state.alert_level = "none"
 
     # Update last known level
@@ -127,6 +132,12 @@ def _evaluate_supply(printer: Printer, supply: SupplyData, db_session: Session) 
         _log_event(printer.id, crit_type, supply, current_pct, sent, db_session)
         state.email_sent_critical = True
         state.alert_level = "critical"
+
+        # Auto-create a helpdesk ticket (once per supply lifecycle) if the
+        # admin has enabled it.  This fires alongside the critical email so
+        # the helpdesk team has an actionable record without anyone clicking
+        # "Create Helpdesk Ticket" manually.
+        _maybe_auto_ticket(printer, supply, current_pct, state, db_session)
 
     elif current_pct <= warn_thresh and not state.email_sent_warning:
         sent = _send(warn_type, printer, supply, current_pct)
@@ -160,6 +171,84 @@ def _evaluate_offline(printer: Printer, data: PrinterData, db_session: Session) 
 
 def _is_drum(supply: SupplyData) -> bool:
     return supply.supply_type in ("opc", "drumUnit")
+
+
+def _maybe_auto_ticket(
+    printer: Printer,
+    supply: SupplyData,
+    current_pct: int,
+    state: AlertState,
+    db_session: Session,
+) -> None:
+    """
+    Auto-create a helpdesk ticket the first time this supply hits critical.
+
+    Gated by the ``auto_ticket_on_critical_enabled`` SiteSetting.  Deduped via
+    ``state.critical_ticket_sent`` — only fires once per supply lifecycle;
+    resets when a replacement is detected.
+    """
+    if state.critical_ticket_sent:
+        return
+    try:
+        from app.models import SiteSetting
+        enabled_row = db_session.get(SiteSetting, "auto_ticket_on_critical_enabled")
+        if not (enabled_row and enabled_row.value == "1"):
+            return
+    except Exception:
+        logger.exception("Could not read auto_ticket_on_critical_enabled setting")
+        return
+
+    try:
+        from app.alerts.notifier import send_helpdesk_ticket
+        kind = "drum" if _is_drum(supply) else "toner"
+        color = (supply.supply_color or "unknown").title()
+        desc = supply.description or f"{color} {kind.title()}"
+        note = (
+            f"AUTOMATIC TICKET: {kind} critically low.\n\n"
+            f"Supply:        {desc}\n"
+            f"Current Level: {current_pct}%\n\n"
+            f"Please order or replace this supply as soon as possible. "
+            f"This ticket was auto-generated when the supply first crossed "
+            f"the critical threshold; you will not receive another for this "
+            f"cartridge until it is replaced."
+        )
+        # Latest supply rows for the ticket body — query directly so we don't
+        # depend on the caller passing them.
+        from app.models import SupplySnapshot, TelemetrySnapshot
+        latest = (
+            db_session.query(TelemetrySnapshot)
+            .filter_by(printer_id=printer.id)
+            .order_by(TelemetrySnapshot.polled_at.desc())
+            .first()
+        )
+        supplies_for_ticket = []
+        if latest:
+            supplies_for_ticket = (
+                db_session.query(SupplySnapshot)
+                .filter_by(telemetry_id=latest.id)
+                .order_by(SupplySnapshot.supply_index)
+                .all()
+            )
+
+        ok, msg = send_helpdesk_ticket(
+            printer, supplies_for_ticket, note, "system/auto-critical",
+        )
+        if ok:
+            state.critical_ticket_sent = True
+            logger.info(
+                "Auto-helpdesk-ticket sent for printer %s supply %d (%s critical at %d%%)",
+                printer.ip_address, supply.supply_index, kind, current_pct,
+            )
+        else:
+            logger.warning(
+                "Auto-helpdesk-ticket failed for printer %s: %s",
+                printer.ip_address, msg,
+            )
+    except Exception:
+        logger.exception(
+            "Error firing auto-helpdesk-ticket for printer %s supply %d",
+            printer.ip_address, supply.supply_index,
+        )
 
 
 def evaluate(printer: Printer, data: PrinterData, db_session: Session) -> None:
