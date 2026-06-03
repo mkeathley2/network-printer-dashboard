@@ -456,6 +456,158 @@ This ticket was created from the Network Printer Dashboard.
 
 
 # ---------------------------------------------------------------------------
+# Cost-entry helpdesk ticket (fires when a toner/drum replacement is detected)
+# ---------------------------------------------------------------------------
+def send_cost_entry_ticket(
+    printer,
+    supply_color: str,
+    supply_description: str,
+    previous_level_pct: Optional[int],
+    new_level_pct: Optional[int],
+    is_drum: bool = False,
+) -> tuple[bool, str]:
+    """
+    Send a helpdesk ticket asking the tech to record a replacement cost in the
+    dashboard.  Fires from the evaluator right after a replacement is detected,
+    when ``auto_ticket_on_replacement_enabled`` is on.
+
+    Includes a one-click link to the printer detail page anchored at the
+    Toner Replacement History section (``#replacements``).  When
+    ``public_url`` is unset, the email degrades gracefully to text-only
+    navigation instructions.
+    """
+    try:
+        from app.core.database import db
+        from app.models import SiteSetting
+        row = db.session.get(SiteSetting, "helpdesk_email")
+        helpdesk_email = row.value if (row and row.value) else ""
+    except Exception:
+        helpdesk_email = ""
+
+    if not helpdesk_email:
+        return False, "No helpdesk email address configured."
+
+    kind = "Drum" if is_drum else "Toner"
+    color_title = (supply_color or "").title() or "Unknown"
+    desc = supply_description or f"{color_title} {kind}"
+    printer_name = printer.effective_name
+
+    prev_str = f"{previous_level_pct}%" if previous_level_pct is not None else "unknown"
+    new_str = f"{new_level_pct}%" if new_level_pct is not None else "unknown"
+
+    # Optional asset fields
+    location_name = printer.location.name if getattr(printer, "location", None) else None
+    extra_text = ""
+    extra_html = ""
+    for field_label, value in (
+        ("Location",  location_name),
+        ("Person",    getattr(printer, "assigned_person", None)),
+        ("SQL #",     getattr(printer, "sql_number", None)),
+        ("Computer",  getattr(printer, "assigned_computer", None)),
+        ("Ext.",      getattr(printer, "phone_ext", None)),
+    ):
+        if value:
+            extra_text += f"{field_label:<13}: {value}\n"
+            extra_html += f"<tr><td><strong>{field_label}</strong></td><td>{value}</td></tr>"
+
+    # Build the call-to-action — anchored at the Replacement History card
+    from app.utils.dashboard_url import printer_url
+    cost_url = printer_url(printer.id, anchor="replacements")
+
+    if cost_url:
+        cta_text = (
+            f"\nEnter the cost here:\n  {cost_url}\n\n"
+            f"Instructions:\n"
+            f"  1. Click the link above.\n"
+            f"  2. Scroll to the 'Toner Replacement History' card.\n"
+            f"  3. Find the newest row (today's date, color = {color_title}).\n"
+            f"  4. Type the cost (USD) in the 'Cost' field.\n"
+            f"  5. Click 'Save'.\n"
+        )
+        cta_html = f"""
+    <p style="margin-top:18px;">
+      <a href="{cost_url}"
+         style="background:#198754;color:#fff;padding:12px 22px;
+                text-decoration:none;border-radius:5px;font-weight:600;
+                font-size:1.05em;display:inline-block;">
+        Enter Cost in Dashboard
+      </a>
+    </p>
+    <ol style="line-height:1.7;margin-top:12px;">
+      <li>Click the green button above to open this printer's page.</li>
+      <li>Scroll to the <strong>Toner Replacement History</strong> card.</li>
+      <li>Find the newest row (today's date, color = <strong>{color_title}</strong>).</li>
+      <li>Type the cost (USD) in the <strong>Cost</strong> field.</li>
+      <li>Click <strong>Save</strong>. That's it!</li>
+    </ol>"""
+    else:
+        cta_text = (
+            "\nTo enter the cost:\n"
+            f"  Open the Network Printer Dashboard, go to Printers → {printer_name},\n"
+            "  scroll to the 'Toner Replacement History' card, find today's row,\n"
+            "  fill in the Cost field, and click Save.\n"
+        )
+        cta_html = f"""
+    <p style="background:#fff3cd;padding:10px;border-left:4px solid #ffc107;">
+      <em>(No public dashboard URL is configured, so no clickable link can be shown.
+      Open the dashboard manually, go to <strong>Printers → {printer_name}</strong>,
+      and scroll to <strong>Toner Replacement History</strong>.)</em>
+    </p>"""
+
+    subject = f"[Printer Ticket] Record cost — {color_title} {kind} replaced on {printer_name}"
+
+    body_text = f"""\
+ACTION REQUESTED: Log replacement cost in dashboard
+
+A {kind.lower()} was just replaced and the dashboard needs you to record the cost
+so the Toner Cost and Cost Per Page reports stay accurate.
+
+Printer Name : {printer_name}
+IP Address   : {printer.ip_address}
+{extra_text}
+Supply        : {desc}
+Old Level     : {prev_str} (just before replacement)
+New Level     : {new_str} (after install)
+{cta_text}
+This ticket was auto-generated by the Network Printer Dashboard.
+"""
+
+    body_html = f"""\
+<!DOCTYPE html>
+<html><body style="font-family:Arial,sans-serif;color:#212529;max-width:680px;margin:0 auto;">
+  <div style="background:#198754;color:#fff;padding:16px 22px;border-radius:6px 6px 0 0;">
+    <div style="font-size:0.85em;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;">
+      Action Requested
+    </div>
+    <h2 style="margin:4px 0 0;">Record replacement cost</h2>
+  </div>
+  <div style="border:1px solid #dee2e6;border-top:0;padding:18px 22px;border-radius:0 0 6px 6px;">
+    <p>
+      A <strong>{color_title} {kind}</strong> was just replaced on <strong>{printer_name}</strong>.
+      The dashboard needs you to log the cost so the Toner Cost and Cost Per Page
+      reports stay accurate.
+    </p>
+    <table cellpadding="6" cellspacing="0" border="0"
+           style="border-collapse:collapse;margin:14px 0;font-size:0.92em;">
+      <tr><td><strong>Printer</strong></td><td>{printer_name}</td></tr>
+      <tr><td><strong>IP Address</strong></td><td>{printer.ip_address}</td></tr>
+      {extra_html}
+      <tr><td><strong>Supply</strong></td><td>{desc}</td></tr>
+      <tr><td><strong>Old Level</strong></td><td>{prev_str} <span style="color:#6c757d;">(just before replacement)</span></td></tr>
+      <tr><td><strong>New Level</strong></td><td>{new_str} <span style="color:#6c757d;">(after install)</span></td></tr>
+    </table>
+    {cta_html}
+  </div>
+  <p style="font-size:12px;color:#999;text-align:center;margin-top:14px;">
+    Auto-generated by the <strong>Network Printer Dashboard</strong>.<br>
+    Disable this notification under Config → Alert Settings → Cost-Entry Ticket on Replacement.
+  </p>
+</body></html>"""
+
+    return _send_email(subject, body_text, body_html, [helpdesk_email])
+
+
+# ---------------------------------------------------------------------------
 # Internal message builder for alert emails
 # ---------------------------------------------------------------------------
 def _build_alert_message(event_type, printer, supply, level_pct):

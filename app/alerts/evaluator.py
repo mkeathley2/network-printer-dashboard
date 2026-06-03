@@ -114,6 +114,15 @@ def _evaluate_supply(printer: Printer, supply: SupplyData, db_session: Session) 
         state.predictive_alert_sent = False
         state.alert_level = "none"
 
+        # Auto-create a cost-entry helpdesk ticket (admin can toggle).
+        # No dedup needed: each replacement is itself a unique event.
+        _maybe_cost_entry_ticket(
+            printer, supply,
+            previous_pct=previous_pct,
+            new_pct=current_pct,
+            db_session=db_session,
+        )
+
     # Update last known level
     state.last_level_pct = current_pct
 
@@ -247,6 +256,60 @@ def _maybe_auto_ticket(
     except Exception:
         logger.exception(
             "Error firing auto-helpdesk-ticket for printer %s supply %d",
+            printer.ip_address, supply.supply_index,
+        )
+
+
+def _maybe_cost_entry_ticket(
+    printer: Printer,
+    supply: SupplyData,
+    previous_pct: int | None,
+    new_pct: int | None,
+    db_session: Session,
+) -> None:
+    """
+    Auto-create a helpdesk ticket asking the tech to log the replacement cost.
+
+    Gated by the ``auto_ticket_on_replacement_enabled`` SiteSetting.  Fires
+    once per detected replacement (no dedup needed — each replacement is
+    itself a unique one-shot event).
+    """
+    try:
+        from app.models import SiteSetting
+        row = db_session.get(SiteSetting, "auto_ticket_on_replacement_enabled")
+        if not (row and row.value == "1"):
+            return
+    except Exception:
+        logger.exception("Could not read auto_ticket_on_replacement_enabled setting")
+        return
+
+    try:
+        from app.alerts.notifier import send_cost_entry_ticket
+        kind_is_drum = _is_drum(supply)
+        color = supply.supply_color or "unknown"
+        desc = supply.description or supply.supply_type or "Supply"
+        ok, msg = send_cost_entry_ticket(
+            printer,
+            supply_color=color,
+            supply_description=desc,
+            previous_level_pct=previous_pct,
+            new_level_pct=new_pct,
+            is_drum=kind_is_drum,
+        )
+        if ok:
+            logger.info(
+                "Cost-entry ticket sent for printer %s supply %d (%s replacement %s%% -> %s%%)",
+                printer.ip_address, supply.supply_index, color,
+                previous_pct, new_pct,
+            )
+        else:
+            logger.warning(
+                "Cost-entry ticket failed for printer %s: %s",
+                printer.ip_address, msg,
+            )
+    except Exception:
+        logger.exception(
+            "Error firing cost-entry ticket for printer %s supply %d",
             printer.ip_address, supply.supply_index,
         )
 

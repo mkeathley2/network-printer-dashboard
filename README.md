@@ -58,6 +58,7 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - Per-event-type toggles
 - Site-wide and per-printer warning/critical thresholds
 - **Auto-helpdesk-ticket on critical** — when any toner or drum hits the critical threshold, the dashboard can automatically file a helpdesk ticket (in addition to the standard alert email). One ticket per supply lifecycle; resets when the cartridge is replaced. Toggle on/off in Config → Alert Settings.
+- **Cost-entry helpdesk ticket on replacement** — when a toner or drum is replaced, optionally file a helpdesk ticket asking the on-site tech to log the replacement cost in the dashboard. Includes a direct link straight to the Replacement History section with step-by-step instructions. Test button in Config so you can preview the email without waiting for a real replacement.
 - **Predictive Toner Alerts** — hourly background job uses linear regression on supply history to predict depletion; auto-creates a helpdesk ticket when a cartridge will run out within N days (configurable)
 - One helpdesk ticket per supply lifecycle (deduped — no spam)
 - "Resend Alerts" button on each printer to re-fire active alerts after fixing email config

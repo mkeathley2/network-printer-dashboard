@@ -757,6 +757,46 @@
   </div>
 </div>
 
+<!-- Auto Cost-Entry Ticket on Replacement -->
+<div class="card mt-3" style="max-width:520px;">
+  <div class="card-header fw-semibold">
+    <i class="bi bi-currency-dollar me-2"></i>Cost-Entry Ticket on Replacement
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">
+      When a toner or drum is replaced, automatically file a helpdesk ticket asking
+      the tech to record the replacement cost in the dashboard. The ticket includes
+      a direct link to the Replacement History section so the cost can be entered
+      in seconds. Requires <strong>helpdesk email</strong> on the SMTP tab.
+    </p>
+    <form method="POST" action="{{ url_for('config.save_cost_entry_ticket_settings') }}"
+          class="d-flex align-items-end gap-2 flex-wrap">
+      <div class="form-check form-switch flex-grow-1">
+        <input class="form-check-input" type="checkbox"
+               name="auto_ticket_on_replacement_enabled" id="auto_ticket_on_replacement_enabled"
+               {% if cost_entry_ticket_settings.enabled %}checked{% endif %}>
+        <label class="form-check-label" for="auto_ticket_on_replacement_enabled">
+          Enable auto cost-entry ticket on replacement
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="bi bi-save me-1"></i>Save
+      </button>
+    </form>
+    <hr/>
+    <form method="POST" action="{{ url_for('config.test_cost_entry_ticket') }}"
+          class="d-flex align-items-center gap-2 mt-2">
+      <button type="submit" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-send me-1"></i>Send Test Email
+      </button>
+      <span class="text-muted small">
+        Fires a sample ticket to the helpdesk email so you can see the format
+        without waiting for a real replacement.
+      </span>
+    </form>
+  </div>
+</div>
+
 <!-- Scheduled Report Emails -->
 <div class="card mt-3" style="max-width:700px;">
   <div class="card-header fw-semibold"><i class="bi bi-envelope-paper me-2"></i>Scheduled Report Emails</div>

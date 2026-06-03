@@ -229,6 +229,22 @@
             printer that's been at 4% for weeks won't generate duplicate tickets. The cycle resets
             on cartridge replacement.
           </p>
+
+          <h3>Cost-entry helpdesk ticket on replacement {% if current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            When enabled (Config → Alert Settings), every detected toner or drum replacement also
+            files a helpdesk ticket asking the on-site tech to record the replacement cost in the
+            dashboard &mdash; with a direct link straight to the Replacement History card and
+            step-by-step instructions. This keeps the Toner Cost and Cost Per Page reports
+            accurate without anyone needing to remember the manual step.
+          </p>
+          {% if current_user.is_admin %}
+          <p class="text-muted small">
+            Don't want to wait for a real replacement to see the email? On the same card you'll
+            find a <strong>Send Test Email</strong> button that fires a sample ticket immediately
+            using your most recent real replacement event (or placeholder data if none exist).
+          </p>
+          {% endif %}
         </section>
 
         <!-- ========== 5. REPORTS ========== -->
@@ -455,6 +471,16 @@ sudo systemctl restart printer-agent</code></pre>
             on/off toggle. When ON, every toner or drum that crosses below the critical threshold
             generates a helpdesk ticket alongside the alert email. Deduped per supply lifecycle
             (resets on cartridge replacement). Requires a helpdesk email on the SMTP tab.
+          </p>
+
+          <h3>Cost-Entry Ticket on Replacement</h3>
+          <p>
+            On the Alert Settings tab, the <strong>Cost-Entry Ticket on Replacement</strong> card has
+            an on/off toggle and a <strong>Send Test Email</strong> button. When the toggle is ON,
+            every detected toner/drum replacement fires a separate helpdesk ticket that asks the
+            tech to record the replacement cost &mdash; with a one-click link to the Replacement
+            History section of that printer's detail page. The Test button sends a sample so you
+            can preview the format without waiting for a real event.
           </p>
 
           <h3>Scheduled Report Emails</h3>

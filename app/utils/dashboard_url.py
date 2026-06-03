@@ -29,10 +29,20 @@ def get_dashboard_url() -> Optional[str]:
     return None
 
 
-def printer_url(printer_id: int) -> Optional[str]:
-    """Absolute URL to a printer's detail page, or None when public_url is unset."""
+def printer_url(printer_id: int, anchor: Optional[str] = None) -> Optional[str]:
+    """
+    Absolute URL to a printer's detail page, or None when public_url is unset.
+
+    Optional ``anchor`` jumps to a section on the page (e.g. ``"replacements"``
+    to land on the Toner Replacement History card).
+    """
     base = get_dashboard_url()
-    return f"{base}/printers/{printer_id}" if base else None
+    if not base:
+        return None
+    url = f"{base}/printers/{printer_id}"
+    if anchor:
+        url += f"#{anchor.lstrip('#')}"
+    return url
 
 
 def history_url(printer_id: int) -> Optional[str]:

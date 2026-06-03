@@ -162,6 +162,11 @@ def index():
         "enabled": _get_setting("auto_ticket_on_critical_enabled", "0") == "1",
     }
 
+    # Cost-entry ticket on replacement settings
+    cost_entry_ticket_settings = {
+        "enabled": _get_setting("auto_ticket_on_replacement_enabled", "0") == "1",
+    }
+
     # Scheduled reports settings — recipient + per-report frequency
     report_settings = None
     if tab == "alerts":
@@ -224,6 +229,7 @@ def index():
         alert_toggle_defs=ALERT_TOGGLE_DEFS,
         predictive_settings=predictive_settings,
         auto_ticket_settings=auto_ticket_settings,
+        cost_entry_ticket_settings=cost_entry_ticket_settings,
         report_settings=report_settings,
         current_version=current_version,
         latest_release=latest_release,
@@ -291,6 +297,110 @@ def save_auto_ticket_settings():
         "Auto-helpdesk-ticket on critical is now DISABLED.",
         "success",
     )
+    return redirect(url_for("config.index", tab="alerts"))
+
+
+# ---------------------------------------------------------------------------
+# Auto cost-entry ticket on replacement (toggle + Send Test)
+# ---------------------------------------------------------------------------
+@bp.route("/save-cost-entry-ticket-settings", methods=["POST"])
+@admin_required
+def save_cost_entry_ticket_settings():
+    enabled = "1" if request.form.get("auto_ticket_on_replacement_enabled") else "0"
+    _set_setting("auto_ticket_on_replacement_enabled", enabled)
+    db.session.commit()
+    audit(current_user.username, "config_cost_entry_ticket", "site",
+          f"Cost-entry ticket on replacement {'enabled' if enabled == '1' else 'disabled'}")
+    flash(
+        "Cost-entry ticket on replacement is now ENABLED. Each detected toner/drum "
+        "replacement will fire one helpdesk ticket asking the tech to log the cost."
+        if enabled == "1" else
+        "Cost-entry ticket on replacement is now DISABLED.",
+        "success",
+    )
+    return redirect(url_for("config.index", tab="alerts"))
+
+
+@bp.route("/test-cost-entry-ticket", methods=["POST"])
+@admin_required
+def test_cost_entry_ticket():
+    """Send a sample cost-entry ticket so the admin can preview the format."""
+    from app.alerts.notifier import send_cost_entry_ticket
+    from app.models.alert import AlertEvent
+
+    # Prefer real data: use the most recent toner_replaced / drum_replaced
+    # event so the test email looks authentic.  Fall back to a synthetic
+    # printer/supply when no real event exists.
+    last_event = (
+        db.session.query(AlertEvent)
+        .filter(AlertEvent.event_type.in_(["toner_replaced", "drum_replaced"]))
+        .order_by(AlertEvent.occurred_at.desc())
+        .first()
+    )
+    if last_event:
+        printer = db.session.get(Printer, last_event.printer_id)
+        if printer:
+            color = last_event.supply_color or "black"
+            desc = f"{color.title()} {'Drum' if last_event.event_type == 'drum_replaced' else 'Toner'}"
+            try:
+                ok, msg = send_cost_entry_ticket(
+                    printer,
+                    supply_color=color,
+                    supply_description=desc,
+                    previous_level_pct=last_event.level_pct_at_event,
+                    new_level_pct=100,
+                    is_drum=(last_event.event_type == "drum_replaced"),
+                )
+                if ok:
+                    audit(current_user.username, "cost_entry_ticket_test", printer.ip_address,
+                          f"Sent test cost-entry ticket using real event {last_event.id}")
+                    flash(
+                        f"Test cost-entry ticket sent (used real event on '{printer.effective_name}').",
+                        "success",
+                    )
+                else:
+                    flash(f"Test failed: {msg}", "danger")
+                return redirect(url_for("config.index", tab="alerts"))
+            except Exception as exc:
+                logger.exception("Test cost-entry ticket failed")
+                flash(f"Test failed: {exc}", "danger")
+                return redirect(url_for("config.index", tab="alerts"))
+
+    # Fall-back: synthetic.  Need a real Printer row so links resolve — pick
+    # any active printer.  If there are no printers at all, bail.
+    fallback_printer = (
+        db.session.query(Printer).filter_by(is_active=True).order_by(Printer.id).first()
+    )
+    if not fallback_printer:
+        flash(
+            "Cannot send test ticket — no printers exist yet to act as a sample. "
+            "Add at least one printer first.",
+            "warning",
+        )
+        return redirect(url_for("config.index", tab="alerts"))
+
+    try:
+        ok, msg = send_cost_entry_ticket(
+            fallback_printer,
+            supply_color="black",
+            supply_description="Sample Black Toner",
+            previous_level_pct=4,
+            new_level_pct=100,
+            is_drum=False,
+        )
+        if ok:
+            audit(current_user.username, "cost_entry_ticket_test", fallback_printer.ip_address,
+                  "Sent test cost-entry ticket using synthetic data")
+            flash(
+                f"Test cost-entry ticket sent using '{fallback_printer.effective_name}' "
+                f"with placeholder supply data (no real replacement events exist yet).",
+                "success",
+            )
+        else:
+            flash(f"Test failed: {msg}", "danger")
+    except Exception as exc:
+        logger.exception("Test cost-entry ticket failed")
+        flash(f"Test failed: {exc}", "danger")
     return redirect(url_for("config.index", tab="alerts"))
 
 
