@@ -12,7 +12,7 @@ from flask_login import current_user, login_required
 from app.core.database import db, get_db
 from app.models import (
     AlertEvent, DiscoveryScan, DiscoveryResult,
-    Printer, SupplySnapshot, TelemetrySnapshot,
+    Location, Printer, SupplySnapshot, TelemetrySnapshot,
 )
 from app.utils.audit import audit
 from app.web.routes.auth import admin_required
@@ -146,7 +146,9 @@ def htmx_discovery_start():
 
     threading.Thread(target=_run, daemon=True).start()
 
-    return render_template("discovery/_results_table.html", scan_id=scan_id, results=[], status="running")
+    locations = db.session.query(Location).order_by(Location.name).all()
+    return render_template("discovery/_results_table.html", scan_id=scan_id, results=[],
+                           status="running", locations=locations)
 
 
 # ---------------------------------------------------------------------------
@@ -164,12 +166,14 @@ def htmx_discovery_results(scan_id: int):
         .order_by(DiscoveryResult.id)
         .all()
     )
+    locations = db.session.query(Location).order_by(Location.name).all()
     return render_template(
         "discovery/_results_table.html",
         scan_id=scan_id,
         scan=scan,
         results=results,
         status=scan.status,
+        locations=locations,
     )
 
 
@@ -213,24 +217,23 @@ def discovery_delete_scan(scan_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Add all new printers from a completed scan
+# Add printers from a completed scan (shared helper + two routes)
 # ---------------------------------------------------------------------------
-@bp.route("/discovery/<int:scan_id>/add-all", methods=["POST"])
-@admin_required
-def discovery_add_all(scan_id: int):
-    from flask import flash, redirect, url_for
-    from app.core.config import config as app_config
+def _add_discovery_results(results: list, location_id: int | None):
+    """
+    Create/restore Printer rows for the given DiscoveryResult list, optionally
+    assigning a location.  Returns (added, skipped, printer_ids).
 
-    results = (
-        db.session.query(DiscoveryResult)
-        .filter_by(scan_id=scan_id, already_known=False)
-        .all()
-    )
+    location_id is set BEFORE _apply_import_data (which only fills a blank
+    location) so an explicit choice always wins.  When location_id is None we
+    leave location untouched (don't force-NULL a restored printer's location).
+    """
+    from app.core.config import config as app_config
+    from app.web.routes.printers import _apply_import_data
 
     added, skipped = 0, 0
-    printer_ids = []
+    printer_ids: list[int] = []
 
-    from app.web.routes.printers import _apply_import_data
     for r in results:
         existing = db.session.query(Printer).filter_by(ip_address=r.ip_address).first()
         if existing and existing.is_active:
@@ -239,6 +242,8 @@ def discovery_add_all(scan_id: int):
         if existing and not existing.is_active:
             existing.is_active = True
             existing.snmp_community = app_config.snmp.community_v2c
+            if location_id:
+                existing.location_id = location_id
             _apply_import_data(existing)
             db.session.commit()
             printer_ids.append(existing.id)
@@ -247,6 +252,7 @@ def discovery_add_all(scan_id: int):
                 ip_address=r.ip_address,
                 display_name=r.hostname or None,
                 snmp_community=app_config.snmp.community_v2c,
+                location_id=location_id,
             )
             db.session.add(printer)
             db.session.flush()
@@ -255,32 +261,119 @@ def discovery_add_all(scan_id: int):
             printer_ids.append(printer.id)
         added += 1
 
-    # Mark all as known now
-    db.session.query(DiscoveryResult).filter_by(scan_id=scan_id, already_known=False).update({"already_known": True})
-    db.session.commit()
+    return added, skipped, printer_ids
 
-    # Poll all newly added printers in background
+
+def _poll_printers_async(printer_ids: list[int]) -> None:
+    """Background-poll a list of printer IDs in their own app context."""
     from flask import current_app
     flask_app = current_app._get_current_object()
-    ids_to_poll = list(printer_ids)
+    ids = list(printer_ids)
 
-    def _poll_all():
+    def _run():
         with flask_app.app_context():
             from app.scanner.poller import poll_single_printer
-            for pid in ids_to_poll:
+            for pid in ids:
                 try:
                     with get_db() as sess:
                         poll_single_printer(pid, sess)
                 except Exception:
                     pass
 
-    threading.Thread(target=_poll_all, daemon=True).start()
+    threading.Thread(target=_run, daemon=True).start()
 
-    msg = f"{added} printer(s) added to the dashboard."
+
+def _location_name(location_id: int | None) -> str:
+    if not location_id:
+        return ""
+    loc = db.session.get(Location, location_id)
+    return loc.name if loc else ""
+
+
+@bp.route("/discovery/<int:scan_id>/add-all", methods=["POST"])
+@admin_required
+def discovery_add_all(scan_id: int):
+    from flask import flash, redirect, url_for
+
+    location_id = request.form.get("location_id") or None
+    if location_id:
+        location_id = int(location_id)
+
+    results = (
+        db.session.query(DiscoveryResult)
+        .filter_by(scan_id=scan_id, already_known=False)
+        .all()
+    )
+    added, skipped, printer_ids = _add_discovery_results(results, location_id)
+
+    # Mark all as known now
+    db.session.query(DiscoveryResult).filter_by(scan_id=scan_id, already_known=False).update(
+        {"already_known": True}
+    )
+    db.session.commit()
+
+    _poll_printers_async(printer_ids)
+
+    loc_name = _location_name(location_id)
+    msg = f"{added} printer(s) added"
+    if loc_name:
+        msg += f" to {loc_name}"
+    msg += "."
     if skipped:
         msg += f" {skipped} already present."
     audit(current_user.username, "discovery_add_all", f"scan {scan_id}",
-          f"Added {added} printer(s) from scan {scan_id}" + (f"; {skipped} already known" if skipped else ""))
+          f"Added {added} printer(s) from scan {scan_id}"
+          + (f" to location '{loc_name}'" if loc_name else "")
+          + (f"; {skipped} already known" if skipped else ""))
+    flash(msg, "success")
+    return redirect(url_for("discovery.index"))
+
+
+@bp.route("/discovery/<int:scan_id>/add-selected", methods=["POST"])
+@admin_required
+def discovery_add_selected(scan_id: int):
+    from flask import flash, redirect, url_for
+
+    selected_ips = [ip.strip() for ip in request.form.getlist("selected_ips") if ip.strip()]
+    location_id = request.form.get("location_id") or None
+    if location_id:
+        location_id = int(location_id)
+
+    if not selected_ips:
+        flash("No printers selected. Tick the checkboxes for the printers you want to add.", "warning")
+        return redirect(url_for("discovery.index"))
+
+    results = (
+        db.session.query(DiscoveryResult)
+        .filter(
+            DiscoveryResult.scan_id == scan_id,
+            DiscoveryResult.already_known == False,  # noqa: E712
+            DiscoveryResult.ip_address.in_(selected_ips),
+        )
+        .all()
+    )
+    added, skipped, printer_ids = _add_discovery_results(results, location_id)
+
+    # Mark only the selected results as known
+    if results:
+        db.session.query(DiscoveryResult).filter(
+            DiscoveryResult.scan_id == scan_id,
+            DiscoveryResult.ip_address.in_([r.ip_address for r in results]),
+        ).update({"already_known": True}, synchronize_session=False)
+        db.session.commit()
+
+    _poll_printers_async(printer_ids)
+
+    loc_name = _location_name(location_id)
+    msg = f"{added} selected printer(s) added"
+    if loc_name:
+        msg += f" to {loc_name}"
+    msg += "."
+    if skipped:
+        msg += f" {skipped} already present."
+    audit(current_user.username, "discovery_add_selected", f"scan {scan_id}",
+          f"Added {added} selected printer(s) from scan {scan_id}"
+          + (f" to location '{loc_name}'" if loc_name else ""))
     flash(msg, "success")
     return redirect(url_for("discovery.index"))
 

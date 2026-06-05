@@ -1,4 +1,6 @@
 {% set is_running = status == 'running' %}
+{% set new_count = results | selectattr('already_known', 'equalto', false) | list | length %}
+{% set show_add_controls = (not is_running) and new_count > 0 and current_user.is_admin %}
 
 <div class="card"
      {% if is_running %}
@@ -6,12 +8,19 @@
      hx-trigger="every 3s"
      hx-swap="outerHTML"
      {% endif %}>
-  <div class="card-header d-flex justify-content-between align-items-center">
+
+  {# Hidden form that the scattered checkboxes / location select / add buttons bind to
+     via the HTML5 form= attribute. Only meaningful once the scan is complete. #}
+  {% if show_add_controls %}
+  <form id="addsel-{{ scan_id }}" method="POST"></form>
+  {% endif %}
+
+  <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span class="fw-semibold">
       <i class="bi bi-broadcast me-1"></i>Scan Results
       {% if scan %} &mdash; {{ scan.cidr_range }}{% endif %}
     </span>
-    <div class="d-flex align-items-center gap-2">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
       {% if is_running %}
         <span class="badge bg-warning text-dark">
           <span class="spinner-border spinner-border-sm me-1" role="status"></span>Scanning…
@@ -21,19 +30,34 @@
       {% elif status == 'failed' %}
         <span class="badge bg-danger">Failed</span>
       {% endif %}
-      {% set new_count = results | selectattr('already_known', 'equalto', false) | list | length %}
+
       {% if not is_running and scan and scan.cidr_range and current_user.is_admin %}
         <button type="button" class="btn btn-sm btn-outline-primary"
                 data-cidr="{{ scan.cidr_range }}" onclick="rescan(this.dataset.cidr)">
           <i class="bi bi-arrow-repeat me-1"></i>Re-scan
         </button>
       {% endif %}
-      {% if not is_running and new_count > 0 and current_user.is_admin %}
-        <form method="POST" action="{{ url_for('api.discovery_add_all', scan_id=scan_id) }}">
-          <button type="submit" class="btn btn-sm btn-success">
-            <i class="bi bi-plus-circle me-1"></i>Add All New ({{ new_count }})
-          </button>
-        </form>
+
+      {% if show_add_controls %}
+        <select name="location_id" form="addsel-{{ scan_id }}"
+                class="form-select form-select-sm" style="max-width:200px;"
+                title="Location to assign added printers to">
+          <option value="">— No location —</option>
+          {% for loc in locations %}
+          <option value="{{ loc.id }}">{{ loc.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" form="addsel-{{ scan_id }}"
+                formaction="{{ url_for('api.discovery_add_selected', scan_id=scan_id) }}"
+                class="btn btn-sm btn-primary">
+          <i class="bi bi-check2-square me-1"></i>Add Selected
+          (<span id="selcount-{{ scan_id }}">0</span>)
+        </button>
+        <button type="submit" form="addsel-{{ scan_id }}"
+                formaction="{{ url_for('api.discovery_add_all', scan_id=scan_id) }}"
+                class="btn btn-sm btn-success">
+          <i class="bi bi-plus-circle me-1"></i>Add All New ({{ new_count }})
+        </button>
       {% endif %}
     </div>
   </div>
@@ -54,7 +78,15 @@
     <table class="table table-sm table-hover mb-0 align-middle">
       <thead class="table-light">
         <tr>
-          <th class="ps-3">IP Address</th>
+          {% if show_add_controls %}
+          <th class="ps-3" style="width:36px;">
+            <input type="checkbox" class="form-check-input" id="selall-{{ scan_id }}"
+                   title="Select all new">
+          </th>
+          {% else %}
+          <th class="ps-3" style="width:0;"></th>
+          {% endif %}
+          <th>IP Address</th>
           <th>Hostname</th>
           <th>Vendor</th>
           <th>Model</th>
@@ -65,7 +97,13 @@
       <tbody>
         {% for r in results %}
         <tr>
-          <td class="ps-3"><code>{{ r.ip_address }}</code></td>
+          <td class="ps-3">
+            {% if show_add_controls and not r.already_known %}
+            <input type="checkbox" class="form-check-input row-check-{{ scan_id }}"
+                   name="selected_ips" value="{{ r.ip_address }}" form="addsel-{{ scan_id }}">
+            {% endif %}
+          </td>
+          <td><code>{{ r.ip_address }}</code></td>
           <td class="text-muted small">{{ r.hostname or '—' }}</td>
           <td>
             {% if r.vendor_detected %}
@@ -89,7 +127,7 @@
                 <input type="hidden" name="ip_address" value="{{ r.ip_address }}">
                 <input type="hidden" name="display_name" value="{{ r.hostname or '' }}">
                 <input type="hidden" name="snmp_community" value="public">
-                <button type="submit" class="btn btn-sm btn-success">Add</button>
+                <button type="submit" class="btn btn-sm btn-outline-success">Add One</button>
               </form>
             {% endif %}
           </td>
@@ -108,3 +146,37 @@
   </div>
   {% endif %}
 </div>
+
+{% if show_add_controls %}
+<script>
+(function() {
+  var scanId = "{{ scan_id }}";
+  var selAll = document.getElementById("selall-" + scanId);
+  var counter = document.getElementById("selcount-" + scanId);
+  function rowChecks() {
+    return Array.prototype.slice.call(
+      document.querySelectorAll(".row-check-" + scanId)
+    );
+  }
+  function updateCount() {
+    var checks = rowChecks();
+    var n = checks.filter(function(c) { return c.checked; }).length;
+    if (counter) counter.textContent = n;
+    if (selAll) {
+      selAll.checked = (n > 0 && n === checks.length);
+      selAll.indeterminate = (n > 0 && n < checks.length);
+    }
+  }
+  if (selAll) {
+    selAll.addEventListener("change", function() {
+      rowChecks().forEach(function(c) { c.checked = selAll.checked; });
+      updateCount();
+    });
+  }
+  rowChecks().forEach(function(c) {
+    c.addEventListener("change", updateCount);
+  });
+  updateCount();
+})();
+</script>
+{% endif %}

@@ -148,16 +148,64 @@ def snmp_walk(
         return []
 
 
+def _clean_octet_string(val: Any) -> str:
+    """
+    Convert a pysnmp OctetString to clean text.
+
+    pysnmp's ``prettyPrint()`` returns a ``0x…`` hex string whenever the octets
+    contain ANY non-printable byte — including the trailing NUL byte that HP
+    (and other vendors) append to ``prtMarkerSuppliesDescription`` and
+    ``prtMarkerColorantValue`` strings.  That hex leaks all the way to the UI
+    (e.g. a supply description showing
+    ``0x426c61636b20436172747269646765…00`` instead of "Black Cartridge HP 87X").
+
+    We grab the raw bytes, strip trailing NULs + whitespace, and decode as
+    text.  Genuinely-binary values (no printable decode) fall back to pysnmp's
+    hex representation so we don't mangle MAC addresses, etc.
+    """
+    # Grab raw bytes (pysnmp OctetString supports .asOctets(); bytes() is a fallback)
+    try:
+        raw = val.asOctets()
+    except Exception:
+        try:
+            raw = bytes(val)
+        except Exception:
+            try:
+                return val.prettyPrint()
+            except Exception:
+                return str(val)
+
+    stripped = raw.rstrip(b"\x00").rstrip()  # trailing NULs + whitespace
+    if not stripped:
+        return ""
+
+    # All-printable ASCII (plus tab / newline / CR)? → decode as text.
+    if all(0x20 <= b < 0x7F or b in (0x09, 0x0A, 0x0D) for b in stripped):
+        return stripped.decode("ascii", errors="replace").strip()
+
+    # Try UTF-8 for accented characters; reject if control chars remain
+    # (that would indicate genuinely binary data).
+    try:
+        text = stripped.decode("utf-8")
+        if all(ord(c) >= 0x20 or c in "\t\n\r" for c in text):
+            return text.strip()
+    except UnicodeDecodeError:
+        pass
+
+    # Genuinely binary — keep pysnmp's hex representation.
+    try:
+        return val.prettyPrint()
+    except Exception:
+        return str(val)
+
+
 def _coerce_value(val: Any) -> Any:
     cls = type(val).__name__
     if cls in ("Integer", "Integer32", "Gauge32", "Counter32", "Counter64",
                "Unsigned32", "TimeTicks", "Integer64"):
         return int(val)
     if cls == "OctetString":
-        try:
-            return val.prettyPrint()
-        except Exception:
-            return str(val)
+        return _clean_octet_string(val)
     if cls == "ObjectIdentifier":
         return str(val)
     if cls in ("Null", "NoSuchObject", "NoSuchInstance", "EndOfMibView"):

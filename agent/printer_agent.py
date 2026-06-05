@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.20
+Version: v0.0.21
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -96,7 +96,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.20"
+AGENT_VERSION = "v0.0.21"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -238,16 +238,54 @@ def detect_local_subnet() -> Optional[str]:
 # Low-level SNMP helpers
 # ---------------------------------------------------------------------------
 
+def _clean_octet_string(val) -> str:
+    """
+    Convert a pysnmp OctetString to clean text.
+
+    pysnmp's prettyPrint() returns a '0x…' hex string whenever the octets
+    contain ANY non-printable byte — including the trailing NUL that HP (and
+    others) append to supply description / colorant strings.  Strip trailing
+    NULs and decode as text; genuinely-binary values fall back to hex so we
+    don't mangle MAC addresses etc.  (Mirrors app/snmp/client.py.)
+    """
+    try:
+        raw = val.asOctets()
+    except Exception:
+        try:
+            raw = bytes(val)
+        except Exception:
+            try:
+                return val.prettyPrint()
+            except Exception:
+                return str(val)
+
+    stripped = raw.rstrip(b"\x00").rstrip()
+    if not stripped:
+        return ""
+
+    if all(0x20 <= b < 0x7F or b in (0x09, 0x0A, 0x0D) for b in stripped):
+        return stripped.decode("ascii", errors="replace").strip()
+
+    try:
+        text = stripped.decode("utf-8")
+        if all(ord(c) >= 0x20 or c in "\t\n\r" for c in text):
+            return text.strip()
+    except UnicodeDecodeError:
+        pass
+
+    try:
+        return val.prettyPrint()
+    except Exception:
+        return str(val)
+
+
 def _coerce(val) -> object:
     cls = type(val).__name__
     if cls in ("Integer", "Integer32", "Gauge32", "Counter32", "Counter64",
                "Unsigned32", "TimeTicks"):
         return int(val)
     if cls == "OctetString":
-        try:
-            return val.prettyPrint()
-        except Exception:
-            return str(val)
+        return _clean_octet_string(val)
     if cls in ("Null", "NoSuchObject", "NoSuchInstance", "EndOfMibView"):
         return None
     try:
