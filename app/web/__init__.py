@@ -100,6 +100,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
         _run_migrations()
         logger.info("Database tables verified/created.")
         _seed_admin()
+        _seed_superadmin()
         _cleanup_stuck_scans()
 
     logger.info("Application created. Listening on port %d", cfg.app.port)
@@ -147,6 +148,10 @@ def _run_migrations() -> None:
         "ALTER TABLE users ADD COLUMN must_change_password BOOLEAN NOT NULL DEFAULT 0",
         # --- Auto helpdesk ticket on critical (v0.0.19) ---
         "ALTER TABLE alert_state ADD COLUMN critical_ticket_sent BOOLEAN NOT NULL DEFAULT 0",
+        # --- Toner Cost cartridge column (v0.0.22) ---
+        "ALTER TABLE alert_events ADD COLUMN supply_description VARCHAR(255) NULL",
+        # --- Super Admin role (v0.0.22) ---
+        "ALTER TABLE users MODIFY COLUMN role ENUM('admin','viewer','superadmin') NOT NULL DEFAULT 'viewer'",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
@@ -194,18 +199,41 @@ def _run_migrations() -> None:
 
 
 def _seed_admin() -> None:
-    """Create default admin user if no users exist."""
+    """Create default super-admin user if no users exist."""
     from app.models import User
     if db.session.query(User).first():
         return
     admin = User(
         username="admin",
-        role="admin",
+        role="superadmin",
         password_hash=generate_password_hash("admin"),
     )
     db.session.add(admin)
     db.session.commit()
-    logger.info("Default admin user created (username: admin, password: admin)")
+    logger.info("Default super-admin user created (username: admin, password: admin)")
+
+
+def _seed_superadmin() -> None:
+    """
+    One-time: when the Super Admin role is first introduced, promote every
+    existing 'admin' account to 'superadmin' so nobody loses Factory Reset /
+    Restore access on upgrade.  Guarded by a SiteSetting flag so it runs
+    exactly once — admins the owner later demotes won't get re-promoted on
+    the next restart.
+    """
+    from app.models import SiteSetting, User
+    flag = db.session.get(SiteSetting, "superadmin_seed_done")
+    if flag and flag.value == "1":
+        return
+    promoted = (
+        db.session.query(User)
+        .filter_by(role="admin")
+        .update({"role": "superadmin"}, synchronize_session=False)
+    )
+    db.session.add(SiteSetting(key="superadmin_seed_done", value="1"))
+    db.session.commit()
+    if promoted:
+        logger.info("Promoted %d existing admin(s) to super-admin (one-time migration)", promoted)
 
 
 def _cleanup_stuck_scans() -> None:

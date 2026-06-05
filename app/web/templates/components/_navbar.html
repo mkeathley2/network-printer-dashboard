@@ -47,7 +47,9 @@
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
             <i class="bi bi-person-circle me-1"></i>{{ current_user.username }}
-            {% if current_user.is_admin %}
+            {% if current_user.is_superadmin %}
+              <span class="badge bg-dark ms-1" style="font-size:0.65em;">Super Admin</span>
+            {% elif current_user.is_admin %}
               <span class="badge bg-danger ms-1" style="font-size:0.65em;">Admin</span>
             {% endif %}
           </a>

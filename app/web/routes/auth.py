@@ -20,11 +20,26 @@ bp = Blueprint("auth", __name__)
 # Access-control decorator
 # ---------------------------------------------------------------------------
 def admin_required(f):
-    """Decorator: must be logged in AND have role='admin'. Returns 403 otherwise."""
+    """Decorator: must be logged in AND be an admin (or super admin). 403 otherwise."""
     @wraps(f)
     @login_required
     def decorated(*args, **kwargs):
         if not current_user.is_admin:
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated
+
+
+def superadmin_required(f):
+    """Decorator: must be logged in AND have role='superadmin'. 403 otherwise.
+
+    Used to gate destructive operations (factory reset, restore-from-backup)
+    so regular admins / techs can't run them.
+    """
+    @wraps(f)
+    @login_required
+    def decorated(*args, **kwargs):
+        if not current_user.is_superadmin:
             abort(403)
         return f(*args, **kwargs)
     return decorated

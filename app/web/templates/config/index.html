@@ -221,7 +221,9 @@
               </td>
               <td class="text-muted small">{{ u.email or '—' }}</td>
               <td>
-                {% if u.role == 'admin' %}
+                {% if u.role == 'superadmin' %}
+                  <span class="badge bg-dark">Super Admin</span>
+                {% elif u.role == 'admin' %}
                   <span class="badge bg-danger">Admin</span>
                 {% else %}
                   <span class="badge bg-secondary">Viewer</span>
@@ -251,18 +253,26 @@
                 </div>
               </td>
               <td>
-                {% if u.id != current_user.id %}
+                {% if u.id == current_user.id %}
+                  <span class="text-muted small">—</span>
+                {% elif u.role == 'superadmin' and not current_user.is_superadmin %}
+                  {# Regular admins can't modify a Super Admin's role #}
+                  <span class="text-muted small" title="Only a Super Admin can change this">
+                    <i class="bi bi-lock me-1"></i>Super Admin
+                  </span>
+                {% else %}
                 <form method="POST" action="{{ url_for('config.set_user_role', user_id=u.id) }}">
                   <div class="d-flex gap-1">
-                    <select name="role" class="form-select form-select-sm" style="width:110px;">
+                    <select name="role" class="form-select form-select-sm" style="width:130px;">
                       <option value="viewer" {% if u.role == 'viewer' %}selected{% endif %}>Viewer</option>
                       <option value="admin" {% if u.role == 'admin' %}selected{% endif %}>Admin</option>
+                      {% if current_user.is_superadmin %}
+                      <option value="superadmin" {% if u.role == 'superadmin' %}selected{% endif %}>Super Admin</option>
+                      {% endif %}
                     </select>
                     <button type="submit" class="btn btn-sm btn-outline-secondary">Save</button>
                   </div>
                 </form>
-                {% else %}
-                  <span class="text-muted small">—</span>
                 {% endif %}
               </td>
               <td class="text-end pe-3">
@@ -1059,7 +1069,8 @@ docker compose up --build -d</pre>
       </div>
     </div>
 
-    <!-- Restore -->
+    <!-- Restore (Super Admin only) -->
+    {% if current_user.is_superadmin %}
     <div class="card">
       <div class="card-header fw-semibold"><i class="bi bi-upload me-2"></i>Restore from Backup</div>
       <div class="card-body">
@@ -1082,10 +1093,20 @@ docker compose up --build -d</pre>
         </form>
       </div>
     </div>
+    {% else %}
+    <div class="card border-secondary">
+      <div class="card-header fw-semibold text-muted"><i class="bi bi-upload me-2"></i>Restore from Backup</div>
+      <div class="card-body text-muted small">
+        <i class="bi bi-lock me-1"></i>Restoring a backup overwrites all data and is restricted to
+        <strong>Super Admin</strong> accounts. Ask a Super Admin to perform a restore.
+      </div>
+    </div>
+    {% endif %}
   </div>
 
-  <!-- RIGHT: Factory Reset -->
+  <!-- RIGHT: Factory Reset (Super Admin only) -->
   <div class="col-lg-6">
+    {% if current_user.is_superadmin %}
     <div class="card border-danger">
       <div class="card-header fw-semibold text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Factory Reset</div>
       <div class="card-body">
@@ -1126,7 +1147,7 @@ docker compose up --build -d</pre>
             <div class="form-check mb-3">
               <input class="form-check-input" type="checkbox" name="categories" value="users" id="reset_users">
               <label class="form-check-label fw-semibold text-danger" for="reset_users">Users</label>
-              <div class="form-text ms-4 text-danger">Removes all users and re-creates admin/admin. You will be logged out.</div>
+              <div class="form-text ms-4 text-danger">Removes all users and re-creates admin/admin (as Super Admin). You will be logged out.</div>
             </div>
             <div class="form-check mb-3">
               <input class="form-check-input" type="checkbox" name="categories" value="settings" id="reset_settings">
@@ -1149,6 +1170,15 @@ docker compose up --build -d</pre>
         </form>
       </div>
     </div>
+    {% else %}
+    <div class="card border-secondary">
+      <div class="card-header fw-semibold text-muted"><i class="bi bi-exclamation-triangle me-2"></i>Factory Reset</div>
+      <div class="card-body text-muted small">
+        <i class="bi bi-lock me-1"></i>Factory Reset permanently deletes data and is restricted to
+        <strong>Super Admin</strong> accounts. Ask a Super Admin if a reset is needed.
+      </div>
+    </div>
+    {% endif %}
   </div>
 </div>
 

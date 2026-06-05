@@ -50,6 +50,40 @@ def _all_active_printers():
     )
 
 
+def _make_desc_resolver():
+    """
+    Return a function (printer_id, supply_index) -> cartridge description.
+
+    Prefers the description stored on the AlertEvent (captured at replacement
+    time).  For historical events that predate that column it falls back to the
+    most recent non-null SupplySnapshot.supply_description for that slot.
+    Results are cached per call to avoid N+1 queries.
+    """
+    cache: dict[tuple, str] = {}
+
+    def resolve(stored_desc, printer_id, supply_index) -> str:
+        if stored_desc:
+            return stored_desc
+        if supply_index is None:
+            return ""
+        key = (printer_id, supply_index)
+        if key not in cache:
+            row = (
+                db.session.query(SupplySnapshot.supply_description)
+                .filter(
+                    SupplySnapshot.printer_id == printer_id,
+                    SupplySnapshot.supply_index == supply_index,
+                    SupplySnapshot.supply_description.isnot(None),
+                )
+                .order_by(SupplySnapshot.polled_at.desc())
+                .first()
+            )
+            cache[key] = (row[0] if row else "") or ""
+        return cache[key]
+
+    return resolve
+
+
 # Linear regression now lives in app.utils.regression (imported above) so the
 # history page and the predictive-toner scheduler can share the same helper.
 _linear_regression = linear_regression  # kept for backward compatibility
@@ -224,6 +258,7 @@ def toner_cost():
     q = q.filter(AlertEvent.occurred_at <= end_dt).order_by(AlertEvent.occurred_at.desc())
     events = q.all()
 
+    resolve_desc = _make_desc_resolver()
     rows = []
     for evt, printer in events:
         rows.append({
@@ -233,6 +268,7 @@ def toner_cost():
             "printer_id": printer.id,
             "location": printer.location.name if printer.location else "",
             "color": evt.supply_color or "unknown",
+            "description": resolve_desc(evt.supply_description, printer.id, evt.supply_index),
             "event_type": evt.event_type,
             "level_pct": evt.level_pct_at_event,
             "cost": float(evt.replacement_cost) if evt.replacement_cost is not None else None,
@@ -248,12 +284,13 @@ def toner_cost():
     if fmt == "csv":
         si = io.StringIO()
         writer = csv.writer(si)
-        writer.writerow(["Date", "Printer", "Location", "Color", "Type", "Level at Replace", "Cost"])
+        writer.writerow(["Date", "Printer", "Location", "Color", "Cartridge", "Type",
+                         "Level at Replace", "Cost"])
         for r in rows:
             writer.writerow([
                 r["occurred_at"].strftime("%Y-%m-%d %H:%M"),
                 r["printer_name"], r["location"], r["color"],
-                r["event_type"], r["level_pct"],
+                r["description"], r["event_type"], r["level_pct"],
                 f"${r['cost']:.2f}" if r["cost"] is not None else "",
             ])
         return Response(si.getvalue(), mimetype="text/csv",
@@ -522,6 +559,7 @@ def fetch_toner_cost(days: int = 30) -> list[dict]:
     if start_dt:
         q = q.filter(AlertEvent.occurred_at >= start_dt)
     events = q.order_by(AlertEvent.occurred_at.desc()).all()
+    resolve_desc = _make_desc_resolver()
     return [
         {
             "occurred_at": evt.occurred_at,
@@ -529,6 +567,7 @@ def fetch_toner_cost(days: int = 30) -> list[dict]:
             "printer_name": printer.effective_name,
             "location": printer.location.name if printer.location else "",
             "color": evt.supply_color or "unknown",
+            "description": resolve_desc(evt.supply_description, printer.id, evt.supply_index),
             "event_type": evt.event_type,
             "level_pct": evt.level_pct_at_event,
             "cost": float(evt.replacement_cost) if evt.replacement_cost is not None else None,
@@ -679,10 +718,12 @@ REPORT_REGISTRY = [
         "title": "Toner Cost",
         "path": "/reports/toner-cost",
         "fetcher": fetch_toner_cost,
-        "csv_header": ["Date", "Printer", "Location", "Color", "Type", "Level at Replace", "Cost"],
+        "csv_header": ["Date", "Printer", "Location", "Color", "Cartridge", "Type",
+                       "Level at Replace", "Cost"],
         "csv_row": lambda r: [
             r["occurred_at"].strftime("%Y-%m-%d %H:%M"),
-            r["printer_name"], r["location"], r["color"], r["event_type"],
+            r["printer_name"], r["location"], r["color"],
+            r.get("description", ""), r["event_type"],
             r["level_pct"],
             f"${r['cost']:.2f}" if r["cost"] is not None else "",
         ],
@@ -690,6 +731,7 @@ REPORT_REGISTRY = [
             ("Date", lambda r: r["occurred_at"].strftime("%Y-%m-%d")),
             ("Printer", "printer_name"),
             ("Color", lambda r: (r["color"] or "").title()),
+            ("Cartridge", lambda r: r.get("description") or "—"),
             ("Level", lambda r: f"{r['level_pct']}%" if r["level_pct"] is not None else "—"),
             ("Cost", lambda r: f"${r['cost']:.2f}" if r["cost"] is not None else "—"),
         ],

@@ -18,7 +18,7 @@ class User(UserMixin, Base):
     email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(
-        Enum("admin", "viewer", name="user_role"), nullable=False, default="viewer"
+        Enum("admin", "viewer", "superadmin", name="user_role"), nullable=False, default="viewer"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -32,7 +32,12 @@ class User(UserMixin, Base):
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        # Super admins are a superset of admins — they pass every admin gate.
+        return self.role in ("admin", "superadmin")
+
+    @property
+    def is_superadmin(self) -> bool:
+        return self.role == "superadmin"
 
     def __repr__(self) -> str:
         return f"<User {self.username!r} role={self.role!r}>"

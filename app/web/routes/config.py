@@ -19,7 +19,7 @@ from app.models.printer import PrinterGroup
 from app.models.remote_agent import RemoteAgent
 from app.utils.audit import audit
 from app.utils.timezone import TIMEZONE_CHOICES
-from app.web.routes.auth import admin_required
+from app.web.routes.auth import admin_required, superadmin_required
 
 bp = Blueprint("config", __name__, url_prefix="/config")
 
@@ -741,9 +741,17 @@ def set_user_role(user_id: int):
         flash("You cannot change your own role.", "danger")
         return redirect(url_for("config.index", tab="users"))
     role = request.form.get("role", "viewer")
-    if role not in ("admin", "viewer"):
+    if role not in ("admin", "viewer", "superadmin"):
         flash("Invalid role.", "danger")
         return redirect(url_for("config.index", tab="users"))
+
+    # Only a Super Admin may grant the superadmin role OR modify a user who is
+    # already a Super Admin. This stops a regular admin/tech from self-elevating
+    # (or elevating a buddy) to gain Factory Reset / Restore access.
+    if (role == "superadmin" or user.role == "superadmin") and not current_user.is_superadmin:
+        flash("Only a Super Admin can grant or change the Super Admin role.", "danger")
+        return redirect(url_for("config.index", tab="users"))
+
     user.role = role
     db.session.commit()
     audit(current_user.username, "user_role", user.username,
@@ -908,7 +916,7 @@ def backup():
 
 
 @bp.route("/restore", methods=["POST"])
-@admin_required
+@superadmin_required
 def restore():
     """Restore the database from an uploaded backup zip."""
     f = request.files.get("backup_file")
@@ -943,7 +951,7 @@ def restore():
 
 
 @bp.route("/reset", methods=["POST"])
-@admin_required
+@superadmin_required
 def reset():
     """Execute a granular factory reset based on selected categories."""
     categories = request.form.getlist("categories")

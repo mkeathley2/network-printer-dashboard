@@ -54,6 +54,7 @@ def _log_event(
         event_type=event_type,
         supply_index=supply.supply_index if supply else None,
         supply_color=supply.supply_color if supply else None,
+        supply_description=(supply.description or None) if supply else None,
         level_pct_at_event=level_pct,
         email_sent=email_sent,
         email_sent_at=datetime.utcnow() if email_sent else None,

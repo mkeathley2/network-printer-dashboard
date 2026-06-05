@@ -37,6 +37,9 @@ class AlertEvent(Base):
     )
     supply_index: Mapped[Optional[int]] = mapped_column(SmallInteger)   # NULL for device-level events
     supply_color: Mapped[Optional[str]] = mapped_column(String(32))
+    # Cartridge model / description captured at event time (e.g. "Black Cartridge HP 87X").
+    # Lets the Toner Cost report show which SKU was replaced.
+    supply_description: Mapped[Optional[str]] = mapped_column(String(255))
     level_pct_at_event: Mapped[Optional[int]] = mapped_column(SmallInteger)
     email_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

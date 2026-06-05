@@ -267,12 +267,13 @@ def execute_reset(categories: list[str]) -> list[str]:
 
         if "users" in categories:
             conn.execute(text("TRUNCATE TABLE users"))
-            # Re-seed admin
+            # Re-seed the default account as SUPER ADMIN — otherwise a users
+            # reset would leave nobody able to access Factory Reset / Restore.
             conn.execute(text(
                 "INSERT INTO users (username, password_hash, role) VALUES "
-                "(:u, :p, 'admin')"
+                "(:u, :p, 'superadmin')"
             ), {"u": "admin", "p": generate_password_hash("admin")})
-            cleared.append("Users (admin/admin restored)")
+            cleared.append("Users (admin/admin restored as Super Admin)")
 
         if "settings" in categories:
             conn.execute(text("TRUNCATE TABLE site_settings"))
