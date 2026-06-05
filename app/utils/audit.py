@@ -4,7 +4,12 @@ Call `audit(username, action, target, detail, success)` from any route.
 Each call opens its own short-lived DB session so the audit record always
 persists even if the main request transaction is rolled back.
 
-Entries older than RETENTION_DAYS are pruned on each write.
+This is the ADMIN AUDIT TRAIL only (logins, setting changes, printer
+adds/edits, etc.). It is NOT where monitoring data lives — toner/drum
+replacement history, costs, alert events, page counts and supply levels are
+stored in separate tables (AlertEvent / SupplySnapshot / TelemetrySnapshot)
+and are kept permanently. Only this audit trail is auto-pruned: entries
+older than RETENTION_DAYS are deleted on each write.
 """
 from __future__ import annotations
 
@@ -13,7 +18,7 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-RETENTION_DAYS = 30
+RETENTION_DAYS = 365
 
 
 def audit(

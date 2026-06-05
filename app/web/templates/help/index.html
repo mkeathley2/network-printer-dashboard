@@ -570,8 +570,14 @@ docker compose up --build -d</code></pre>
 
           <h3>Activity Log</h3>
           <p>
-            Every administrative action is recorded with timestamp, username, action type, target, and
-            detail. Retained for 30 days. Exportable as CSV.
+            Every administrative action (logins, setting changes, printer adds/edits, role changes, etc.)
+            is recorded with timestamp, username, action type, target, and detail. Retained for
+            <strong>1 year</strong>, then old entries are auto-pruned. Exportable as CSV.
+          </p>
+          <p class="text-muted small">
+            This is the admin audit trail only. It does <strong>not</strong> hold your toner replacement
+            history, costs, or monitoring data — those live in separate tables and are kept permanently
+            (see the FAQ below).
           </p>
 
           <h3>Backup &amp; Reset</h3>
@@ -649,10 +655,24 @@ docker compose up --build -d</code></pre>
             Remote-agent printers are polled on the agent's own interval.
           </p>
 
-          <h3>How long is data kept?</h3>
+          <h3>How long is data kept? Will I lose my toner replacement history?</h3>
           <p>
-            Telemetry and supply snapshots are kept indefinitely (small rows, small cost). Alerts are
-            kept indefinitely too. The activity log auto-prunes at 30 days.
+            <strong>No — your monitoring data is kept permanently.</strong> The following are never
+            auto-pruned, so you can run reports across years of history:
+          </p>
+          <ul>
+            <li><strong>Toner &amp; drum replacement history</strong> (with the costs you entered)</li>
+            <li><strong>Page-count and supply-level history</strong> (telemetry &amp; supply snapshots)</li>
+            <li><strong>Every alert event ever raised</strong></li>
+          </ul>
+          <p>
+            The <em>only</em> thing that auto-prunes is the admin <strong>Activity Log</strong> (the
+            who-did-what audit trail — logins, setting changes, etc.), which is kept for
+            <strong>1 year</strong>. That's completely separate from your printer/toner data.
+          </p>
+          <p class="text-muted small">
+            The only way to remove monitoring data is a deliberate <strong>Factory Reset</strong>
+            (Super Admin only) — nothing is deleted automatically.
           </p>
         </section>
 

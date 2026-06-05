@@ -103,7 +103,7 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - **Temporary passwords + forced change**: when an admin creates a user with an email, the system generates a random temp password, emails it via the welcome email, and forces the user to set their own password on first login
 - Admins can hit "Send Reset Email" to issue a new temp password to any user with an email on file
 - Manual password set still available for users without email
-- Audit log of every administrative action (30-day retention)
+- Audit log of every administrative action (admin audit trail; 1-year retention)
 
 ### Configuration (Admin)
 - **Email / SMTP** — STARTTLS, SSL/TLS, or none; with built-in test email
@@ -119,6 +119,11 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - Comprehensive user manual at **`/help`** (your username menu → Help)
 - Sidebar table of contents, scrollable single-page format
 - Admin-only sections automatically hidden from Viewer accounts
+
+### Data Retention
+- **Monitoring data is kept permanently** — toner/drum replacement history (with costs), page-count and supply-level history, and every alert event are never auto-pruned, so you can report across years of history
+- The **only** auto-pruned table is the admin **Activity Log** (the who-did-what audit trail), retained for **1 year**
+- The only way to remove monitoring data is a deliberate **Factory Reset** (Super Admin only)
 
 ---
 
