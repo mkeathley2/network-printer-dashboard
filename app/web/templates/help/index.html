@@ -52,7 +52,9 @@
             <h3 class="mb-0">Printer Dashboard — User Manual</h3>
             <div class="text-muted small">
               Signed in as <strong>{{ current_user.username }}</strong>
-              {% if current_user.is_admin %}<span class="badge bg-danger">Admin</span>{% else %}<span class="badge bg-secondary">Viewer</span>{% endif %}
+              {% if current_user.is_superadmin %}<span class="badge bg-dark">Super Admin</span>
+              {% elif current_user.is_admin %}<span class="badge bg-danger">Admin</span>
+              {% else %}<span class="badge bg-secondary">Viewer</span>{% endif %}
             </div>
           </div>
         </div>
@@ -128,9 +130,38 @@
           <h3>Adding a printer {% if not current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
           <p>
             Admin users click a printer tile → the printer detail page opens. To add a new one,
-            use <strong>Discover</strong> to scan a subnet OR click "Add Printer" from the printer list page.
-            You provide the IP address, optionally a display name, and the SNMP community string
+            use <strong>Discover</strong> to scan a subnet (below) OR click "Add Printer" from the printer
+            list page. You provide the IP address, optionally a display name, and the SNMP community string
             (usually <code>public</code>). The first poll runs automatically.
+          </p>
+
+          <h3>Network Discovery — scan &amp; bulk-add {% if not current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            The <strong>Discover</strong> tab (top nav) scans a whole subnet for SNMP-responsive printers
+            so you don't have to add them one IP at a time.
+          </p>
+          <ol>
+            <li>Enter a <strong>CIDR range</strong> (e.g. <code>10.47.69.0/24</code>) and the SNMP community
+              string (default <code>public</code>), then click <strong>Start Scan</strong>. Progress
+              updates live.</li>
+            <li>When the scan finishes, each responding host appears as a row marked <span class="badge bg-success">New</span>
+              or <span class="badge bg-info text-dark">Known</span> (already on the dashboard), with detected
+              vendor and model.</li>
+            <li>To add printers, you have three options:
+              <ul>
+                <li><strong>Tick the checkboxes</strong> for the specific printers you want (or use the
+                  header "select all" checkbox), choose a <strong>Location</strong> from the dropdown, and
+                  click <strong>Add Selected</strong>. The counter shows how many are selected.</li>
+                <li><strong>Add All New</strong> — adds every new printer at once, also into the chosen Location.</li>
+                <li><strong>Add One</strong> — the per-row button adds a single printer (configure its Location
+                  on the printer page afterward).</li>
+              </ul>
+            </li>
+          </ol>
+          <p class="text-muted small">
+            Newly-added printers are polled automatically in the background, and any matching spreadsheet
+            import data (assigned person, SQL number, etc.) is applied. Recent scans are listed on the left
+            and can be re-run or removed.
           </p>
 
           <h3>The printer detail page</h3>
@@ -167,8 +198,11 @@
           <h3>Actions available on the detail page</h3>
           <ul>
             <li><strong>Poll Now</strong> — force an immediate SNMP poll instead of waiting for the scheduler</li>
-            <li><strong>Resend Alerts</strong> — clear dedup flags so active warnings are re-emailed on the next poll (admin only)</li>
+            <li><strong>History</strong> — open the per-printer History page (charts + depletion estimates)</li>
+            <li><strong>Open Web UI</strong> — open the printer's own built-in web interface in a new tab (uses the stored web username/password if you've saved them)</li>
             <li><strong>Create Helpdesk Ticket</strong> — email a ticket to the configured helpdesk address</li>
+            <li><strong>Resend Alerts</strong> — clear dedup flags so active warnings are re-emailed on the next poll (admin only)</li>
+            <li><strong>Edit</strong> — change the display name, location, SNMP community, and asset fields (assigned person, SQL number, computer, phone ext., web credentials) (admin only)</li>
             <li><strong>Set Thresholds</strong> — override the site-wide warning/critical percentages for this one printer (admin only)</li>
             <li><strong>Remove Printer</strong> — soft-delete. Printer data is kept; printer can be restored from Config → Removed Printers (admin only)</li>
           </ul>
@@ -272,7 +306,7 @@
             <div class="col-md-6">
               <div class="border rounded p-3 h-100">
                 <i class="bi bi-cash-coin text-primary"></i> <strong>Toner Cost</strong>
-                <p class="small mb-0 mt-1">Every toner replacement with the cost you entered. Totals by printer and color.</p>
+                <p class="small mb-0 mt-1">Every toner replacement with the cost you entered, plus a <strong>Cartridge</strong> column showing which model was swapped (e.g. "Black Cartridge HP 87X") so you can track prices per SKU. Totals by printer and color.</p>
               </div>
             </div>
             <div class="col-md-6">
@@ -399,10 +433,17 @@ sudo systemctl restart printer-agent</code></pre>
           <h2>7. User Accounts &amp; Security</h2>
 
           <h3>Roles</h3>
+          <p>There are three roles, in increasing order of privilege:</p>
           <ul>
             <li><span class="badge bg-secondary">Viewer</span> — read-only. Can see all printers, reports, and alerts. Cannot edit anything.</li>
-            <li><span class="badge bg-danger">Admin</span> — full access. Can add/edit/remove printers, manage users, change settings, apply updates.</li>
+            <li><span class="badge bg-danger">Admin</span> — can add/edit/remove printers, run discovery, manage users, change all settings, manage remote agents, and download backups. <strong>Cannot</strong> run the destructive Factory Reset or Restore-from-backup. This is the right role for most techs.</li>
+            <li><span class="badge bg-dark">Super Admin</span> — everything an Admin can do <em>plus</em> Factory Reset and Restore-from-backup. Only a Super Admin can grant the Super Admin role or change another Super Admin's account, so a regular admin can't self-elevate.</li>
           </ul>
+          <p class="text-muted small">
+            On upgrade to the version that introduced Super Admin, all existing Admin accounts were
+            promoted to Super Admin so nobody lost access. If you want your techs to be plain Admins
+            (no Factory Reset / Restore), demote them under <strong>Config → Users</strong>.
+          </p>
 
           <h3>Temporary passwords &amp; forced change</h3>
           <p>
@@ -533,10 +574,21 @@ docker compose up --build -d</code></pre>
             detail. Retained for 30 days. Exportable as CSV.
           </p>
 
-          <h3>Backup / Reset</h3>
-          <p>
-            Download a SQL dump of the full database, or reset the instance to factory defaults.
-          </p>
+          <h3>Backup &amp; Reset</h3>
+          <p>The <strong>Backup &amp; Reset</strong> tab has three areas:</p>
+          <ul>
+            <li><strong>Download Backup</strong> (any Admin) — exports the database as a zip of JSON files.
+              <em>Config-only</em> skips telemetry/alert history for a small, fast snapshot; <em>Full</em>
+              includes everything. Estimated sizes and row counts are shown.</li>
+            <li><strong>Restore from Backup</strong> <span class="badge bg-dark admin-tag">Super Admin</span> —
+              upload a previously-downloaded zip to overwrite the database. Because this replaces all data,
+              it's restricted to Super Admins.</li>
+            <li><strong>Factory Reset</strong> <span class="badge bg-dark admin-tag">Super Admin</span> —
+              granular wipe by category (printers &amp; history, locations, discovery history, staged imports,
+              audit log, users, settings). Tick only what you want to clear; it requires an explicit
+              "I understand" confirmation. Resetting <em>users</em> recreates the default
+              <code>admin/admin</code> account as a Super Admin and logs you out.</li>
+          </ul>
         </section>
         {% endif %}
 

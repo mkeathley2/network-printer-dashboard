@@ -48,7 +48,7 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 ### Reports (all six available to every signed-in user, with CSV export)
 1. **Print Volume** — pages printed per printer in a date range, grouped by printer/person/location
 2. **Page Count Over Time** — multi-line chart of cumulative pages over time
-3. **Toner Cost** — every replacement event with the cost you entered; totals by printer and color
+3. **Toner Cost** — every replacement event with the cost you entered, plus a **Cartridge** column showing which model was swapped (e.g. "Black Cartridge HP 87X") so you can track prices per SKU; totals by printer and color
 4. **Cost Per Page** — total toner spend ÷ pages printed (printer efficiency metric)
 5. **Consumption Rate** — % per day depletion via linear regression, with projected days remaining
 6. **Reliability** — offline event count per printer
@@ -70,13 +70,16 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - Sent at 7 AM site-local time
 - One global recipient email
 - HTML-styled email with the top 50 rows in-line + full data as a CSV attachment
+- The Consumption Rate email mirrors its on-screen report — color badges, level bars, urgent/warning row highlighting, and the "running out within 7 days" banner
 - One-click "Send Now" test button for each report so you can preview without waiting
 - "View Full Report" button in each email links back to the dashboard
 
 ### Network Discovery
-- Scan any CIDR range to find SNMP-responsive printers
-- Add discovered printers individually or in bulk
+- Scan any CIDR range to find SNMP-responsive printers (live progress)
 - Configurable SNMP community per scan
+- **Multi-select add** — tick the specific printers you want (or select-all), choose a **Location** from the dropdown, and click **Add Selected**; or **Add All New** at once, or **Add One** per row
+- Newly-added printers are auto-polled in the background and any matching spreadsheet import data is applied
+- Recent scans are listed for quick re-scan or removal
 
 ### Remote Agents
 For monitoring printers at sites the dashboard server can't reach directly (separate networks, branch offices, etc.):
@@ -93,7 +96,10 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 
 ### User Accounts & Security
 - Login-protected; every page requires authentication
-- Two roles: **Admin** (full access) and **Viewer** (read-only — sees printers, reports, alerts)
+- Three roles:
+  - **Viewer** — read-only (printers, reports, alerts)
+  - **Admin** — full edit access (printers, discovery, users, settings, remote agents, backup download) but **not** the destructive Factory Reset / Restore — ideal for techs
+  - **Super Admin** — everything, including Factory Reset and Restore-from-backup. Only a Super Admin can grant the Super Admin role or modify another Super Admin, so a tech can't self-elevate
 - **Temporary passwords + forced change**: when an admin creates a user with an email, the system generates a random temp password, emails it via the welcome email, and forces the user to set their own password on first login
 - Admins can hit "Send Reset Email" to issue a new temp password to any user with an email on file
 - Manual password set still available for users without email
@@ -104,9 +110,9 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - **Locations** — tag printers by location for filtering and grouping
 - **Spreadsheet Import** — bulk-import asset fields from .xlsx (matches by IP)
 - **Thresholds** — site-wide warning/critical %, poll interval, timezone; one-click button to bulk-reset per-printer threshold overrides back to site defaults
-- **Alert Settings** — per-event-type email toggles + Predictive Toner Alerts config
+- **Alert Settings** — per-event-type email toggles, Predictive Toner Alerts, Auto-Ticket on Critical, Cost-Entry Ticket on Replacement, and Scheduled Report Emails
 - **Activity Log** — every admin action with CSV export
-- **Backup & Reset** — SQL dump download or factory reset
+- **Backup & Reset** — backup download (config-only or full) for any admin; **Restore** and granular **Factory Reset** are Super Admin-only
 - **Updates** — version comparison vs latest GitHub release with release notes
 
 ### In-App Help
@@ -254,9 +260,12 @@ For internet exposure, put it behind a reverse proxy (Caddy, Nginx, Cloudflare T
 
 The web container intentionally has **no permission to modify the host system** — no Docker socket mount, no full repo write access. Updates are applied manually via SSH so that even in the event of a successful attack on the dashboard, the attacker cannot pivot to the VM. This is a small UX cost (one minute of typing per update) for a meaningful security improvement.
 
+The destructive operations (Factory Reset, Restore-from-backup) are gated behind the **Super Admin** role, so day-to-day techs can run as plain Admins without the ability to wipe or overwrite the database.
+
 If you expose the dashboard to the internet (Tailscale Funnel, Cloudflare Tunnel, etc.), consider:
 - Set a strong `SECRET_KEY` in `.env` (32+ random chars)
 - Change the default `admin` / `admin` password immediately on first login
+- Give techs the **Admin** role and reserve **Super Admin** for yourself
 - Configure SMTP and use the welcome-email flow for new users (so passwords never travel through chat or shared docs)
 - Keep the install up to date
 
@@ -275,9 +284,9 @@ If you expose the dashboard to the internet (Tailscale Funnel, Cloudflare Tunnel
 
 | Username | Password | Role |
 |---|---|---|
-| `admin` | `admin` | Admin |
+| `admin` | `admin` | Super Admin |
 
-**Change this immediately after first login** (top-right user menu → Change Password).
+**Change this immediately after first login** (top-right user menu → Change Password). Then create separate accounts for your techs as **Admin** (they can change everything except Factory Reset / Restore).
 
 ---
 
