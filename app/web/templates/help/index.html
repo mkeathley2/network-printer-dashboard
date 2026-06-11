@@ -271,6 +271,8 @@
             dashboard &mdash; with a direct link straight to the Replacement History card and
             step-by-step instructions. This keeps the Toner Cost and Cost Per Page reports
             accurate without anyone needing to remember the manual step.
+            Printers flagged <strong>Supplies under contract</strong> (on the Edit page) never get
+            this ticket — vendor-supplied toner has no cost to record.
           </p>
           {% if current_user.is_admin %}
           <p class="text-muted small">
@@ -334,6 +336,26 @@
             Admin: open a printer detail page, scroll to <strong>Toner Replacement History</strong>,
             and fill in the <em>Cost</em> field for a replacement row. The cost immediately flows into
             the Toner Cost and Cost Per Page reports.
+          </p>
+
+          <h3>Printers with supplies under contract {% if current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>
+            Some printers get their toner from a vendor under a service contract — there's no
+            per-cartridge price to log, and including them would skew your cost numbers. On the
+            printer's <strong>Edit</strong> page, tick <strong>Supplies under contract</strong>
+            (under "Cost Tracking"). For flagged printers:
+          </p>
+          <ul>
+            <li>Replacements are <strong>excluded</strong> from the Toner Cost and Cost Per Page
+              reports (rows, totals, charts, CSVs, and scheduled emails)</li>
+            <li><strong>No cost-entry helpdesk ticket</strong> fires when a cartridge is replaced</li>
+            <li>The printer's own Replacement History card still shows every swap (marked
+              <em>Contract</em>), and low-toner alerts, predictive tickets, and critical tickets all
+              work normally — someone still has to change the cartridge</li>
+          </ul>
+          <p class="text-muted small">
+            Any costs logged before flagging are retained, just hidden — untick the box and they
+            reappear in the reports.
           </p>
 
           <h3>Scheduling email reports {% if current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>

@@ -274,7 +274,17 @@ def _maybe_cost_entry_ticket(
     Gated by the ``auto_ticket_on_replacement_enabled`` SiteSetting.  Fires
     once per detected replacement (no dedup needed — each replacement is
     itself a unique one-shot event).
+
+    Printers flagged ``supplies_under_contract`` never get this ticket —
+    their toner is vendor-supplied, so there is no cost to record.
     """
+    if getattr(printer, "supplies_under_contract", False):
+        logger.debug(
+            "Skipping cost-entry ticket for printer %s — supplies under contract",
+            printer.ip_address,
+        )
+        return
+
     try:
         from app.models import SiteSetting
         row = db_session.get(SiteSetting, "auto_ticket_on_replacement_enabled")

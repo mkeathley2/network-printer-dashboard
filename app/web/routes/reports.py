@@ -252,6 +252,8 @@ def toner_cost():
     ).filter(
         AlertEvent.event_type.in_(["toner_replaced", "drum_replaced"]),
         Printer.is_active == True,
+        # Contract printers (vendor-supplied toner) are excluded from cost reporting
+        Printer.supplies_under_contract == False,  # noqa: E712
     )
     if start_dt:
         q = q.filter(AlertEvent.occurred_at >= start_dt)
@@ -315,6 +317,8 @@ def cost_per_page():
     rows = []
 
     for p in printers:
+        if p.supplies_under_contract:
+            continue  # vendor-supplied toner — excluded from cost reporting
         # Total toner cost
         q_cost = db.session.query(AlertEvent).filter(
             AlertEvent.printer_id == p.id,
@@ -555,6 +559,8 @@ def fetch_toner_cost(days: int = 30) -> list[dict]:
     ).filter(
         AlertEvent.event_type.in_(["toner_replaced", "drum_replaced"]),
         Printer.is_active == True,
+        # Contract printers (vendor-supplied toner) are excluded from cost reporting
+        Printer.supplies_under_contract == False,  # noqa: E712
     )
     if start_dt:
         q = q.filter(AlertEvent.occurred_at >= start_dt)
@@ -581,6 +587,8 @@ def fetch_cost_per_page(days: int = 30) -> list[dict]:
     start_dt = datetime.utcnow() - timedelta(days=days) if days > 0 else None
     rows = []
     for p in _all_active_printers():
+        if p.supplies_under_contract:
+            continue  # vendor-supplied toner — excluded from cost reporting
         q_cost = db.session.query(AlertEvent).filter(
             AlertEvent.printer_id == p.id,
             AlertEvent.event_type.in_(["toner_replaced", "drum_replaced"]),

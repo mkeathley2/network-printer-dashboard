@@ -192,6 +192,8 @@ def edit(printer_id: int):
         new_pw = request.form.get("printer_web_password", "").strip()
         if new_pw:
             printer.printer_web_password = new_pw
+        # Checkbox: absent from the form when unchecked
+        printer.supplies_under_contract = bool(request.form.get("supplies_under_contract"))
         db.session.commit()
         audit(current_user.username, "printer_edit", printer.ip_address,
               f"Edited printer {printer.effective_name} ({printer.ip_address})")

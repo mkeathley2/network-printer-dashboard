@@ -100,6 +100,12 @@ class Printer(Base):
     supply_warn_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
     supply_crit_pct: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
 
+    # Supplies provided under a service contract (e.g. vendor-managed toner).
+    # When True: replacements are excluded from the Toner Cost / Cost Per Page
+    # reports and no cost-entry helpdesk ticket fires on replacement.
+    # Low-toner alerts and other tickets are unaffected.
+    supplies_under_contract: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     telemetry: Mapped[List["TelemetrySnapshot"]] = relationship(  # type: ignore[name-defined]
         "TelemetrySnapshot", back_populates="printer", cascade="all, delete-orphan"
     )

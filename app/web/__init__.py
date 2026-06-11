@@ -152,6 +152,8 @@ def _run_migrations() -> None:
         "ALTER TABLE alert_events ADD COLUMN supply_description VARCHAR(255) NULL",
         # --- Super Admin role (v0.0.22) ---
         "ALTER TABLE users MODIFY COLUMN role ENUM('admin','viewer','superadmin') NOT NULL DEFAULT 'viewer'",
+        # --- Supplies-under-contract flag (v0.0.25) ---
+        "ALTER TABLE printers ADD COLUMN supplies_under_contract BOOLEAN NOT NULL DEFAULT 0",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
