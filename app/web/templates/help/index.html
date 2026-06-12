@@ -206,6 +206,18 @@
             <li><strong>Set Thresholds</strong> — override the site-wide warning/critical percentages for this one printer (admin only)</li>
             <li><strong>Remove Printer</strong> — soft-delete. Printer data is kept; printer can be restored from Config → Removed Printers (admin only)</li>
           </ul>
+
+          <h3>Moving printers between locations {% if not current_user.is_admin %}<span class="badge bg-danger admin-tag">Admin</span>{% endif %}</h3>
+          <p>Three ways, depending on how many you're moving:</p>
+          <ul>
+            <li><strong>One printer</strong> — change the Location dropdown on its Edit page.</li>
+            <li><strong>A hand-picked set</strong> — on the <strong>Printers</strong> list page, tick the
+              checkboxes (or select-all), choose a location in the bar above the table, and click
+              <strong>Move Selected</strong>.</li>
+            <li><strong>Everything at a location</strong> — on <strong>Config → Locations</strong>, use the
+              <i class="bi bi-box-arrow-right"></i> "move printers" action on the source location's row,
+              pick the target, and all of its printers move at once.</li>
+          </ul>
         </section>
 
         <!-- ========== 4. ALERTS ========== -->
@@ -403,14 +415,22 @@
           <ol>
             <li>Go to <strong>Config → Remote Agents</strong>.</li>
             <li>Enter a name (a Location with the same name is auto-created).</li>
-            <li>Optionally enter a subnet — leave blank to have the agent auto-detect its own.</li>
+            <li>Leave the subnet <strong>blank (recommended)</strong> — the agent detects the machine's
+              own subnet on first run (outbound interface + the actual mask from
+              <code>ipconfig</code> / <code>ip addr</code>) and reports it back to the dashboard.
+              Enter a CIDR only when the machine spans multiple subnets or should scan a different one.</li>
             <li>Click <strong>Create Agent</strong>.</li>
             <li>Copy the Windows PowerShell or Raspberry Pi bash one-liner displayed.</li>
             <li>Paste it into an <em>elevated</em> PowerShell (Windows) or shell (Pi) on the remote machine.</li>
           </ol>
 
           <h3>Managing agents</h3>
-          <p>Each agent row in the table has action buttons:</p>
+          <p>
+            The agents table shows a <strong>Printers</strong> column — the number of active printers
+            each agent has found. An agent stuck at <strong>0</strong> either hasn't completed a scan
+            yet or is scanning the wrong subnet; once you've confirmed it's not needed, delete it.
+            Each agent row also has action buttons:
+          </p>
           <ul>
             <li><i class="bi bi-arrow-clockwise"></i> <strong>Rescan Now</strong> — tell the agent to scan immediately</li>
             <li><i class="bi bi-cloud-download"></i> <strong>Force Update</strong> — push the latest agent version</li>
@@ -558,8 +578,18 @@ sudo systemctl restart printer-agent</code></pre>
           <h3>Locations</h3>
           <p>
             Tag each printer with a location. Locations power the filter bar on the dashboard and the
-            grouping options in reports.
+            grouping options in reports. Each row on the Locations tab has three actions:
           </p>
+          <ul>
+            <li><i class="bi bi-pencil"></i> <strong>Rename</strong> — fix typos; printers and agents keep
+              pointing at the location (they're linked by ID, not name). Renaming to a name that already
+              exists is blocked — to combine two locations, move the printers across, then delete the
+              empty one.</li>
+            <li><i class="bi bi-box-arrow-right"></i> <strong>Move printers</strong> — bulk-move every
+              printer at this location to another location (or to "No location") in one click.</li>
+            <li><i class="bi bi-trash"></i> <strong>Delete</strong> — removes the location; its printers
+              become unassigned.</li>
+          </ul>
 
           <h3>Import</h3>
           <p>

@@ -58,7 +58,40 @@ def list_printers():
         .order_by(Printer.display_name, Printer.ip_address)
         .all()
     )
-    return render_template("printers/list.html", printers=printers, removed=removed)
+    locations = db.session.query(Location).order_by(Location.name).all()
+    return render_template("printers/list.html", printers=printers, removed=removed,
+                           locations=locations)
+
+
+@bp.route("/move-to-location", methods=["POST"])
+@admin_required
+def move_to_location():
+    """Bulk-move the checkbox-selected printers to a location (or clear it)."""
+    selected_ids = [int(i) for i in request.form.getlist("selected_ids") if i.isdigit()]
+    if not selected_ids:
+        flash("No printers selected. Tick the checkboxes for the printers you want to move.", "warning")
+        return redirect(url_for("printers.list_printers"))
+
+    target_raw = request.form.get("location_id", "")
+    target_id = int(target_raw) if target_raw else None
+    target_name = "No location"
+    if target_id is not None:
+        target = db.session.get(Location, target_id)
+        if not target:
+            flash("Target location not found.", "danger")
+            return redirect(url_for("printers.list_printers"))
+        target_name = target.name
+
+    moved = (
+        db.session.query(Printer)
+        .filter(Printer.id.in_(selected_ids))
+        .update({"location_id": target_id}, synchronize_session=False)
+    )
+    db.session.commit()
+    audit(current_user.username, "printers_move_location", target_name,
+          f"Moved {moved} printer(s) to '{target_name}'")
+    flash(f"Moved {moved} printer(s) to '{target_name}'.", "success")
+    return redirect(url_for("printers.list_printers"))
 
 
 @bp.route("/<int:printer_id>")

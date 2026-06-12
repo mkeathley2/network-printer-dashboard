@@ -38,9 +38,11 @@ function Write-Fail($msg)   { Write-Host "[FAIL] $msg" -ForegroundColor Red; exi
 Write-Status "Starting installation..."
 
 # --- Validate required params ---
+# SUBNET is optional: when blank, the agent auto-detects the machine's local
+# subnet on first run (outbound interface + actual mask from ipconfig).
 if (-not $URL)    { Write-Fail "URL is required. Set env:AGENT_URL before running." }
 if (-not $KEY)    { Write-Fail "KEY is required. Set env:AGENT_KEY before running." }
-if (-not $SUBNET) { Write-Fail "SUBNET is required. Set env:AGENT_SUBNET before running." }
+if (-not $SUBNET)   { $SUBNET = "" }
 if (-not $LOCATION) { $LOCATION = "" }
 
 # --- Stop and remove existing scheduled task if present ---
@@ -74,10 +76,12 @@ try {
 
 # --- Write config ---
 Write-Status "Writing agent_config.json..."
+# Empty subnets list => the agent auto-detects the local subnet on first run.
+$subnets = if ($SUBNET) { @($SUBNET) } else { @() }
 $config = @{
     dashboard_url         = $URL
     api_key               = $KEY
-    subnets               = @($SUBNET)
+    subnets               = $subnets
     location              = $LOCATION
     snmp_community        = "public"
     snmp_timeout          = 3
@@ -144,7 +148,8 @@ Write-Host "  Install dir : $InstallDir"
 Write-Host "  Executable  : $AgentExe"
 Write-Host "  Log file    : $LogFile"
 Write-Host "  Dashboard   : $URL"
-Write-Host "  Subnet      : $SUBNET"
+if ($SUBNET) { Write-Host "  Subnet      : $SUBNET" }
+else         { Write-Host "  Subnet      : (auto-detect on first run)" }
 if ($LOCATION) { Write-Host "  Location    : $LOCATION" }
 Write-Host ""
 Write-Host "Useful commands:" -ForegroundColor Yellow

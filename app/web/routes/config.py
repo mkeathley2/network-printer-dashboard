@@ -205,6 +205,15 @@ def index():
     public_url = _get_setting("public_url", "")
     new_agent_info = flask_session.pop("new_agent_info", None) if tab == "agents" else None
 
+    # Active-printer count per agent (shows which agents have found nothing)
+    from sqlalchemy import func
+    agent_printer_counts = dict(
+        db.session.query(Printer.agent_id, func.count(Printer.id))
+        .filter(Printer.is_active == True, Printer.agent_id.isnot(None))  # noqa: E712
+        .group_by(Printer.agent_id)
+        .all()
+    )
+
     return render_template(
         "config/index.html",
         smtp=smtp,
@@ -236,6 +245,7 @@ def index():
         has_update=has_update,
         backup_stats=backup_stats,
         agents=agents,
+        agent_printer_counts=agent_printer_counts,
         public_url=public_url,
         new_agent_info=new_agent_info,
     )
@@ -794,6 +804,69 @@ def delete_location(location_id: int):
     return redirect(url_for("config.index", tab="locations"))
 
 
+@bp.route("/locations/<int:location_id>/rename", methods=["POST"])
+@admin_required
+def rename_location(location_id: int):
+    location = db.get_or_404(Location, location_id)
+    new_name = request.form.get("name", "").strip()
+    if not new_name:
+        flash("Location name cannot be empty.", "danger")
+        return redirect(url_for("config.index", tab="locations"))
+    # Block renaming onto an existing location (case-insensitive). To combine
+    # two locations, use "Move printers" then delete the empty one.
+    clash = (
+        db.session.query(Location)
+        .filter(Location.name.ilike(new_name), Location.id != location_id)
+        .first()
+    )
+    if clash:
+        flash(
+            f"A location named '{clash.name}' already exists. To combine two locations, "
+            f"move the printers across first, then delete the empty one.",
+            "danger",
+        )
+        return redirect(url_for("config.index", tab="locations"))
+    old_name = location.name
+    location.name = new_name
+    db.session.commit()
+    audit(current_user.username, "location_rename", new_name,
+          f"Renamed location '{old_name}' to '{new_name}'")
+    flash(f"Location renamed: '{old_name}' → '{new_name}'.", "success")
+    return redirect(url_for("config.index", tab="locations"))
+
+
+@bp.route("/locations/<int:location_id>/move-printers", methods=["POST"])
+@admin_required
+def move_location_printers(location_id: int):
+    """Bulk-move every printer at this location to another location (or none)."""
+    source = db.get_or_404(Location, location_id)
+    target_raw = request.form.get("target_location_id", "")
+    target_id = int(target_raw) if target_raw else None
+
+    if target_id == source.id:
+        flash("Source and target location are the same — nothing to move.", "warning")
+        return redirect(url_for("config.index", tab="locations"))
+
+    target_name = "No location"
+    if target_id is not None:
+        target = db.session.get(Location, target_id)
+        if not target:
+            flash("Target location not found.", "danger")
+            return redirect(url_for("config.index", tab="locations"))
+        target_name = target.name
+
+    moved = (
+        db.session.query(Printer)
+        .filter_by(location_id=source.id)
+        .update({"location_id": target_id})
+    )
+    db.session.commit()
+    audit(current_user.username, "location_move_printers", source.name,
+          f"Moved {moved} printer(s) from '{source.name}' to '{target_name}'")
+    flash(f"Moved {moved} printer(s) from '{source.name}' to '{target_name}'.", "success")
+    return redirect(url_for("config.index", tab="locations"))
+
+
 # ---------------------------------------------------------------------------
 # Spreadsheet import
 # ---------------------------------------------------------------------------
@@ -1042,10 +1115,12 @@ def add_agent():
     db.session.add(agent)
     db.session.commit()
 
-    # Build install commands with pre-filled values
+    # Build install commands with pre-filled values.
+    # Blank subnet is intentional: the agent auto-detects its local subnet
+    # on first run when the config has no subnets.
     public_url = _get_setting("public_url", "https://your-dashboard-url.com")
 
-    subnet_hint = subnet or "192.168.1.0/24"
+    subnet_hint = subnet or ""
 
     windows_cmd = (
         f'$env:AGENT_URL="{public_url}"; $env:AGENT_KEY="{plaintext_key}"; '
@@ -1184,7 +1259,7 @@ def agent_regenerate_key(agent_id: int):
     db.session.commit()
 
     public_url = _get_setting("public_url", "https://your-dashboard-url.com")
-    subnet_hint = agent.subnet or "192.168.1.0/24"
+    subnet_hint = agent.subnet or ""  # blank = agent auto-detects on first run
     loc_name = agent.location.name if agent.location else ""
 
     windows_cmd = (

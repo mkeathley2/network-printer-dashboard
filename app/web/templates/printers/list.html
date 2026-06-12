@@ -27,11 +27,38 @@
 </ul>
 
 {% if not request.args.get('tab') or request.args.get('tab') == 'active' %}
+
+{% if current_user.is_admin and printers %}
+{# Hidden form the row checkboxes + move bar bind to via the form= attribute #}
+<form id="movesel" method="POST" action="{{ url_for('printers.move_to_location') }}"></form>
+<div class="card mb-2">
+  <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+    <span class="small text-muted">
+      <i class="bi bi-box-arrow-right me-1"></i>Move selected printers to:
+    </span>
+    <select name="location_id" form="movesel" class="form-select form-select-sm" style="max-width:220px;">
+      <option value="">— No location —</option>
+      {% for loc in locations %}
+      <option value="{{ loc.id }}">{{ loc.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" form="movesel" class="btn btn-sm btn-primary">
+      <i class="bi bi-check2-square me-1"></i>Move Selected (<span id="movesel-count">0</span>)
+    </button>
+  </div>
+</div>
+{% endif %}
+
 <div class="card">
   <div class="table-responsive">
     <table class="table table-hover table-sm mb-0 align-middle">
       <thead class="table-dark">
         <tr>
+          {% if current_user.is_admin %}
+          <th style="width:36px;" class="ps-3">
+            <input type="checkbox" class="form-check-input" id="movesel-all" title="Select all">
+          </th>
+          {% endif %}
           <th>Status</th>
           <th>Name / IP</th>
           <th>Vendor</th>
@@ -44,6 +71,12 @@
       <tbody>
         {% for p in printers %}
         <tr>
+          {% if current_user.is_admin %}
+          <td class="ps-3">
+            <input type="checkbox" class="form-check-input movesel-check"
+                   name="selected_ids" value="{{ p.id }}" form="movesel">
+          </td>
+          {% endif %}
           <td>
             {% if p.is_online %}
               <span class="badge bg-success">Online</span>
@@ -78,7 +111,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="7" class="text-center text-muted py-4">
+          <td colspan="{{ 8 if current_user.is_admin else 7 }}" class="text-center text-muted py-4">
             No printers yet. <a href="{{ url_for('printers.add') }}">Add one</a> or
             <a href="{{ url_for('discovery.index') }}">scan the network</a>.
           </td>
@@ -88,6 +121,35 @@
     </table>
   </div>
 </div>
+
+{% if current_user.is_admin and printers %}
+<script>
+(function() {
+  var selAll = document.getElementById("movesel-all");
+  var counter = document.getElementById("movesel-count");
+  function rowChecks() {
+    return Array.prototype.slice.call(document.querySelectorAll(".movesel-check"));
+  }
+  function updateCount() {
+    var checks = rowChecks();
+    var n = checks.filter(function(c) { return c.checked; }).length;
+    if (counter) counter.textContent = n;
+    if (selAll) {
+      selAll.checked = (n > 0 && n === checks.length);
+      selAll.indeterminate = (n > 0 && n < checks.length);
+    }
+  }
+  if (selAll) {
+    selAll.addEventListener("change", function() {
+      rowChecks().forEach(function(c) { c.checked = selAll.checked; });
+      updateCount();
+    });
+  }
+  rowChecks().forEach(function(c) { c.addEventListener("change", updateCount); });
+  updateCount();
+})();
+</script>
+{% endif %}
 
 {% elif request.args.get('tab') == 'removed' %}
 <div class="card">

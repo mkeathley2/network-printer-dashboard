@@ -355,12 +355,53 @@
                 <span class="badge bg-secondary">{{ location_counts.get(loc.id, 0) }}</span>
               </td>
               <td class="text-end pe-3">
-                <form method="POST" action="{{ url_for('config.delete_location', location_id=loc.id) }}"
-                      onsubmit="return confirm('Delete location {{ loc.name }}? Printers will be unassigned.')">
-                  <button type="submit" class="btn btn-sm btn-outline-danger">
-                    <i class="bi bi-trash"></i>
+                <div class="d-flex gap-1 justify-content-end">
+                  <!-- Rename -->
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                          data-bs-target="#renameloc-{{ loc.id }}" title="Rename location">
+                    <i class="bi bi-pencil"></i>
                   </button>
-                </form>
+                  <!-- Move printers -->
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse"
+                          data-bs-target="#moveloc-{{ loc.id }}"
+                          title="{% if location_counts.get(loc.id, 0) %}Move all {{ location_counts.get(loc.id, 0) }} printer(s) to another location{% else %}No printers to move{% endif %}"
+                          {% if not location_counts.get(loc.id, 0) %}disabled{% endif %}>
+                    <i class="bi bi-box-arrow-right"></i>
+                  </button>
+                  <!-- Delete -->
+                  <form method="POST" action="{{ url_for('config.delete_location', location_id=loc.id) }}"
+                        onsubmit="return confirm('Delete location {{ loc.name }}? Printers will be unassigned.')">
+                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete location">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+                <!-- Inline rename form -->
+                <div class="collapse mt-1" id="renameloc-{{ loc.id }}">
+                  <form method="POST" action="{{ url_for('config.rename_location', location_id=loc.id) }}"
+                        class="d-flex gap-1 align-items-center justify-content-end">
+                    <input type="text" name="name" class="form-control form-control-sm"
+                           value="{{ loc.name }}" required style="max-width:220px;">
+                    <button type="submit" class="btn btn-sm btn-primary py-0">Rename</button>
+                  </form>
+                </div>
+                <!-- Inline move-printers form -->
+                <div class="collapse mt-1" id="moveloc-{{ loc.id }}">
+                  <form method="POST" action="{{ url_for('config.move_location_printers', location_id=loc.id) }}"
+                        class="d-flex gap-1 align-items-center justify-content-end"
+                        onsubmit="return confirm('Move all {{ location_counts.get(loc.id, 0) }} printer(s) from {{ loc.name }} to the selected location?')">
+                    <span class="small text-muted">Move all to:</span>
+                    <select name="target_location_id" class="form-select form-select-sm" style="max-width:200px;">
+                      <option value="">— No location —</option>
+                      {% for other in locations %}
+                        {% if other.id != loc.id %}
+                        <option value="{{ other.id }}">{{ other.name }}</option>
+                        {% endif %}
+                      {% endfor %}
+                    </select>
+                    <button type="submit" class="btn btn-sm btn-primary py-0">Move</button>
+                  </form>
+                </div>
               </td>
             </tr>
             {% else %}
@@ -1305,6 +1346,7 @@ function confirmReset(form) {
               <th>Name</th>
               <th>Location</th>
               <th>Status</th>
+              <th>Printers</th>
               <th>Last Check-In</th>
               <th>Version</th>
               <th>Subnet</th>
@@ -1338,6 +1380,14 @@ function confirmReset(form) {
                   <span class="badge bg-secondary">Inactive</span>
                 {% else %}
                   <span class="badge bg-warning text-dark">{{ agent.status }}</span>
+                {% endif %}
+              </td>
+              <td>
+                {% set pcount = agent_printer_counts.get(agent.id, 0) %}
+                {% if pcount > 0 %}
+                  <span class="badge bg-primary" title="{{ pcount }} active printer(s) found by this agent">{{ pcount }}</span>
+                {% else %}
+                  <span class="badge bg-light text-muted border" title="No printers found by this agent yet">0</span>
                 {% endif %}
               </td>
               <td class="text-muted small">
@@ -1566,10 +1616,15 @@ function confirmReset(form) {
             <div class="form-text">A unique name for this site/agent. A matching Location will be created automatically.</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">Subnet</label>
+            <label class="form-label">Subnet <span class="text-muted small">(optional)</span></label>
             <input type="text" name="subnet" class="form-control form-control-sm"
-                   placeholder="192.168.10.0/24">
-            <div class="form-text">CIDR range this agent should scan. Can be changed later.</div>
+                   placeholder="Leave blank to auto-detect">
+            <div class="form-text">
+              <strong>Leave blank (recommended):</strong> the agent detects the machine's own subnet
+              on first run — perfect for single-subnet sites. Specify a CIDR (e.g.
+              <code>192.168.10.0/24</code>) only when the machine can reach more than one subnet or
+              you need to scan a different one. Can be changed later from this tab.
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Scan Interval (minutes)</label>

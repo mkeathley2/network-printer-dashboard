@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.25
+Version: v0.0.26
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -96,7 +96,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.25"
+AGENT_VERSION = "v0.0.26"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -815,7 +815,7 @@ def setup_config(args) -> dict:
 
     url = _ask("Dashboard URL", "https://printers.yourcompany.com", getattr(args, "url", None))
     key = _ask("API Key", "", getattr(args, "key", None))
-    subnet = _ask("Subnet to scan (CIDR)", "192.168.1.0/24", getattr(args, "subnet", None))
+    subnet = _ask("Subnet to scan (CIDR, blank = auto-detect)", "", getattr(args, "subnet", None))
     location = _ask("Location name (optional)", "", getattr(args, "location", None))
     community = _ask("SNMP community string", "public", None)
     interval = _ask("Scan interval (minutes)", "60", None)
@@ -823,7 +823,8 @@ def setup_config(args) -> dict:
     cfg = {
         "dashboard_url": url.rstrip("/"),
         "api_key": key,
-        "subnets": [subnet],
+        # Empty list => auto-detect the local subnet on first run
+        "subnets": [subnet] if subnet else [],
         "location": location,
         "snmp_community": community,
         "snmp_timeout": 3,

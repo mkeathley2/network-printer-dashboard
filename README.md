@@ -88,8 +88,9 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - The Windows .exe is auto-built by GitHub Actions on every release and downloaded directly from the GitHub Releases page during install
 - Reports back to the central dashboard over HTTPS — no VPN or port-forwarding required
 - One-line install command (PowerShell on Windows, bash on Pi). Works cleanly from ConnectWise Backstage / RMM tools running as SYSTEM
-- **Auto-detects local subnet** if not specified — uses OS routing tables
+- **Auto-detects the local subnet by default** — leave the subnet blank when creating the agent (recommended for single-subnet sites) and it figures out what to scan on first run via the outbound interface + the actual mask from `ipconfig` / `ip addr`, then reports the detected CIDR back to the dashboard. Specifying an explicit subnet remains fully supported for multi-subnet machines
 - **Auto-updates** when the dashboard version changes (Windows uses a swap-on-restart helper to replace the running .exe)
+- **Per-agent printer count** on the agents table — spot agents that found nothing and delete them
 - Subnet, scan interval, and location editable from the dashboard
 - Stale-detection alerts when an agent stops checking in
 - Agents that have never checked in can be deleted directly from the dashboard (no need to wait for a remote uninstall ACK that will never come)
@@ -108,7 +109,7 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 
 ### Configuration (Admin)
 - **Email / SMTP** — STARTTLS, SSL/TLS, or none; with built-in test email
-- **Locations** — tag printers by location for filtering and grouping
+- **Locations** — tag printers by location for filtering and grouping; rename locations in place (typo fixes — printers/agents follow automatically), and mass-move printers: a per-location "move all" action on the Locations tab, plus multi-select checkboxes with a "Move Selected" bar on the Printers list
 - **Spreadsheet Import** — bulk-import asset fields from .xlsx (matches by IP)
 - **Thresholds** — site-wide warning/critical %, poll interval, timezone; one-click button to bulk-reset per-printer threshold overrides back to site defaults
 - **Alert Settings** — per-event-type email toggles, Predictive Toner Alerts, Auto-Ticket on Critical, Cost-Entry Ticket on Replacement, and Scheduled Report Emails

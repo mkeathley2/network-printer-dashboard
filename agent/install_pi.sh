@@ -49,14 +49,21 @@ _ask() {
     eval "$var_name=\"${input:-$default}\""
 }
 
-_ask AGENT_URL      "Dashboard URL"                  "https://printers.yourcompany.com"
-_ask AGENT_KEY      "API Key"                        ""
-_ask AGENT_SUBNET   "Subnet to scan (CIDR)"          "192.168.1.0/24"
-_ask AGENT_LOCATION "Location name (optional)"       ""
-_ask SNMP_COMMUNITY "SNMP community string"          "public"
-_ask SCAN_INTERVAL  "Scan interval (minutes)"        "60"
+_ask AGENT_URL      "Dashboard URL"                            "https://printers.yourcompany.com"
+_ask AGENT_KEY      "API Key"                                  ""
+_ask AGENT_SUBNET   "Subnet to scan (CIDR, blank=auto-detect)" ""
+_ask AGENT_LOCATION "Location name (optional)"                 ""
+_ask SNMP_COMMUNITY "SNMP community string"                    "public"
+_ask SCAN_INTERVAL  "Scan interval (minutes)"                  "60"
 
 [ -z "$AGENT_KEY" ] && fail "API Key is required."
+
+# Blank subnet => empty list; the agent auto-detects the local subnet on first run.
+if [ -n "$AGENT_SUBNET" ]; then
+    SUBNETS_JSON="[\"$AGENT_SUBNET\"]"
+else
+    SUBNETS_JSON="[]"
+fi
 
 # ---------------------------------------------------------------------------
 # System dependencies
@@ -108,13 +115,12 @@ cat > "$INSTALL_DIR/agent_config.json" <<EOF
 {
   "dashboard_url": "${AGENT_URL%/}",
   "api_key": "$AGENT_KEY",
-  "subnets": ["$AGENT_SUBNET"],
+  "subnets": $SUBNETS_JSON,
   "location": "$AGENT_LOCATION",
   "snmp_community": "$SNMP_COMMUNITY",
   "snmp_timeout": 3,
   "snmp_retries": 1,
-  "scan_interval_minutes": $SCAN_INTERVAL,
-  "agent_version": "1.0.0"
+  "scan_interval_minutes": $SCAN_INTERVAL
 }
 EOF
 ok "Config written to $INSTALL_DIR/agent_config.json"
@@ -168,7 +174,11 @@ echo -e "${GREEN}Installation complete!${NC}"
 echo "  Install dir : $INSTALL_DIR"
 echo "  Log file    : $INSTALL_DIR/agent.log"
 echo "  Dashboard   : $AGENT_URL"
-echo "  Subnet      : $AGENT_SUBNET"
+if [ -n "$AGENT_SUBNET" ]; then
+    echo "  Subnet      : $AGENT_SUBNET"
+else
+    echo "  Subnet      : (auto-detect on first run)"
+fi
 [ -n "$AGENT_LOCATION" ] && echo "  Location    : $AGENT_LOCATION"
 echo ""
 echo "Useful commands:"
