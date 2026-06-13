@@ -193,7 +193,16 @@ def _parse_supply_walk(walk_rows: list) -> list[SupplyData]:
     """
     Parse raw walk rows from prtMarkerSuppliesTable into SupplyData objects.
     The table has sub-OIDs like: .43.11.1.1.{col}.1.{index}
-    col 4 = type, col 6 = description, col 8 = maxCapacity, col 9 = level
+
+    Columns (RFC 3805 prtMarkerSuppliesEntry):
+      col 4 = prtMarkerSuppliesClass (1-4: other/unknown/consumed/filled)
+      col 5 = prtMarkerSuppliesType  (3=toner, 9=opc/drum, 4=wasteToner, ...)
+      col 6 = description, col 8 = maxCapacity, col 9 = level
+
+    The TYPE lives in column 5 — column 4 is only the class. (We previously
+    read col 4 as the type, which mislabeled drums as tonerCartridge because
+    both are class 3 "supplyThatIsConsumed".) Col 4 is kept as a fallback for
+    devices that don't populate col 5.
     """
     # Collect by index
     supplies: dict[int, dict] = {}
@@ -213,6 +222,8 @@ def _parse_supply_walk(walk_rows: list) -> list[SupplyData]:
             supplies[index] = {}
 
         if col == 4:
+            supplies[index]["class_int"] = int(value) if value is not None else None
+        elif col == 5:
             supplies[index]["type_int"] = int(value) if value is not None else None
         elif col == 6:
             supplies[index]["description"] = str(value) if value else ""
@@ -224,6 +235,8 @@ def _parse_supply_walk(walk_rows: list) -> list[SupplyData]:
     result = []
     for idx, info in sorted(supplies.items()):
         type_int = info.get("type_int")
+        if type_int is None:
+            type_int = info.get("class_int")  # legacy fallback
         level    = info.get("level")
         max_cap  = info.get("max_cap")
         desc     = info.get("description", "")

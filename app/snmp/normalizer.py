@@ -7,24 +7,34 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 
-# Mapping of prtMarkerSuppliesType integer → human-readable type string
+# Mapping of prtMarkerSuppliesType integer → human-readable type string.
+# Values follow RFC 3805 PrtMarkerSuppliesTypeTC. Both 3 (toner) and
+# 21 (tonerCartridge) map to the app-canonical "tonerCartridge" string,
+# and 9 (opc) is the drum / imaging unit that _is_drum() keys on.
 SUPPLY_TYPE_MAP = {
     1: "other",
     2: "unknown",
-    3: "tonerCartridge",
-    4: "inkCartridge",
-    5: "inkRibbon",
-    6: "wasteToner",
-    7: "opc",            # drum / imaging unit
-    8: "developerOil",
-    9: "wasteInk",
-    10: "opc",
-    11: "cleanerFluid",
-    12: "fuseroil",
-    13: "solidWax",
-    14: "ribbonWax",
-    15: "wasteWax",
-    16: "ipm",
+    3: "tonerCartridge",   # toner
+    4: "wasteToner",
+    5: "ink",
+    6: "inkCartridge",
+    7: "inkRibbon",
+    8: "wasteInk",
+    9: "opc",              # drum / imaging unit
+    10: "developer",
+    11: "fuserOil",
+    12: "solidWax",
+    13: "ribbonWax",
+    14: "wasteWax",
+    15: "fuser",
+    16: "coronaWire",
+    17: "fuserOilWick",
+    18: "cleanerUnit",
+    19: "fuserCleaningPad",
+    20: "transferUnit",
+    21: "tonerCartridge",  # tonerCartridge
+    22: "fuserOiler",
+    32: "staples",
 }
 
 # Color name normalisation

@@ -42,8 +42,14 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 ### Vendor Support
 - Auto-detection from SNMP `sysObjectID`
 - Enhanced data for **HP**, **Brother**, **Canon**, **Kyocera/ECOSYS**, **Ricoh**
+- **Brother mono lasers** (HL-L2xxx, DCP/MFC-L2xxx) report toner as "unknown" in the standard MIB — the dashboard reads the real percentage from Brother's proprietary maintenance data so these models show accurate toner levels
 - Generic RFC 3805 Printer-MIB support for any other SNMP-capable printer
+- Correct supply-type detection (toner vs. drum/imaging unit vs. waste) so drum alerts and the toner-only reports stay accurate
 - Smart toner-color parsing (e.g. Kyocera TK-5242C → Cyan)
+
+### Duplicate Detection
+- A **Duplicates** tab on the Printers page groups active printers that share a serial number — usually the same physical device added twice (locally + via an agent, or re-discovered after a DHCP change)
+- Each group shows name / IP / model / location / source side-by-side, badges the most-recently-seen row, and lets you remove the extra in one click
 
 ### Reports (all six available to every signed-in user, with CSV export)
 1. **Print Volume** — pages printed per printer in a date range, grouped by printer/person/location

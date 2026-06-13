@@ -64,12 +64,16 @@ HP_DEVICE_STATUS    = "1.3.6.1.4.1.11.2.3.9.1.1.2.1.0"
 # ---------------------------------------------------------------------------
 # Brother
 # ---------------------------------------------------------------------------
+# Verified live against a Brother HL-L2350DW (NC-8800w print server):
+#   .5.5.1.0  = serial number (OctetString, e.g. "U64964G3N754508")
+#   .5.5.8.0  = maintenance blob: [id][0x01][0x04][4-byte BE value] records,
+#               0xff-terminated. id 0x81 = toner remaining % (0-100),
+#               id 0x6f = toner remaining % x100, id 0x41 = drum % x100,
+#               id 0x11 = page count.
+#   .5.5.17.0 = firmware version ("1.72") — NOT the serial.
 BROTHER_SYSOID_PREFIX   = "1.3.6.1.4.1.2435"
-BROTHER_MODEL           = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"
-BROTHER_SERIAL          = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.17.0"
-BROTHER_PAGE_COUNT      = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.8.0"
-BROTHER_TONER_BLACK     = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.10.0"
-BROTHER_DRUM_BLACK      = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.55.0"
+BROTHER_SERIAL          = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"
+BROTHER_MAINTENANCE     = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.8.0"
 
 # ---------------------------------------------------------------------------
 # Canon

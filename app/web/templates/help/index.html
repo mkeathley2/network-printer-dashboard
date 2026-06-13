@@ -218,6 +218,22 @@
               <i class="bi bi-box-arrow-right"></i> "move printers" action on the source location's row,
               pick the target, and all of its printers move at once.</li>
           </ul>
+
+          <h3>Finding duplicate printers</h3>
+          <p>
+            The same physical printer can end up on the dashboard twice — typically when it was added
+            locally <em>and</em> found by a remote agent, or re-discovered at a new IP after a DHCP
+            change. The <strong>Duplicates</strong> tab on the Printers page groups active printers that
+            share the same <strong>serial number</strong> (the reliable key — names and IPs can
+            legitimately differ or collide across sites).
+          </p>
+          <p>
+            Each group shows the rows side-by-side (name, IP, model, location, whether it came from a
+            remote agent or was added locally, and last-seen time). The row with the most recent
+            successful poll is badged <span class="badge bg-success">Most recent</span> — that's usually
+            the one to keep. Click <strong>Remove</strong> on the other; it's a soft-delete, so history
+            is kept and it can be restored from the Removed tab if you picked wrong.
+          </p>
         </section>
 
         <!-- ========== 4. ALERTS ========== -->
@@ -229,6 +245,12 @@
             Every poll, the dashboard queries each printer's SNMP supply table. Level is reported as a
             percentage of capacity. Some older printers only report a raw count vs. max — the dashboard
             converts that to a percentage automatically.
+          </p>
+          <p class="text-muted small">
+            <strong>Brother mono lasers</strong> (HL-L2xxx, DCP/MFC-L2xxx, …) don't publish the toner
+            level in the standard supply table at all — they answer "unknown, at least one unit
+            remaining". The dashboard (and remote agents) read the real percentage from Brother's
+            proprietary maintenance data instead, so these models show accurate toner levels too.
           </p>
 
           <h3>Warning vs. Critical thresholds</h3>

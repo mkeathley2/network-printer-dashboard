@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.26
+Version: v0.0.27
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -96,7 +96,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.26"
+AGENT_VERSION = "v0.0.27"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -111,6 +111,14 @@ OID_PRT_LIFE_COUNT       = "1.3.6.1.2.1.43.10.2.1.4.1.1"
 OID_PRT_SERIAL           = "1.3.6.1.2.1.43.5.1.1.17.1"
 OID_PRT_SUPPLIES_TABLE   = "1.3.6.1.2.1.43.11.1.1"
 
+# Brother proprietary OIDs. Brother mono lasers report the toner level in the
+# standard MIB as -3/-2 sentinels ("at least one unit remaining"), so the real
+# percentage must come from the maintenance blob. Blob format: 7-byte records
+# [id][0x01][0x04][4-byte BE value], 0xff-terminated. id 0x81 = toner %,
+# id 0x6f = toner % x100, id 0x11 = page count.
+OID_BROTHER_SERIAL       = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"
+OID_BROTHER_MAINTENANCE  = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.8.0"
+
 VENDOR_OID_PREFIXES = {
     "1.3.6.1.4.1.11.":   "hp",
     "1.3.6.1.4.1.2435.": "brother",
@@ -119,11 +127,20 @@ VENDOR_OID_PREFIXES = {
     "1.3.6.1.4.1.367.":  "ricoh",
 }
 
+# RFC 3805 PrtMarkerSuppliesTypeTC values (column 5 of the supplies table).
+# Both 3 (toner) and 21 (tonerCartridge) map to the canonical string.
 SUPPLY_TYPE_MAP = {
+    1: "other",
+    2: "unknown",
     3: "tonerCartridge",
-    4: "inkCartridge",
-    7: "opc",
-    10: "opc",
+    4: "wasteToner",
+    5: "ink",
+    6: "inkCartridge",
+    7: "inkRibbon",
+    8: "wasteInk",
+    9: "opc",            # drum / imaging unit
+    10: "developer",
+    21: "tonerCartridge",
 }
 
 COLOR_MAP = {
@@ -410,6 +427,10 @@ def _parse_supplies(walk_rows: list) -> list[dict]:
         if idx not in by_index:
             by_index[idx] = {}
         if col == 4:
+            # prtMarkerSuppliesClass — fallback only (3 = consumed supply)
+            by_index[idx]["class_int"] = int(value) if value is not None else None
+        elif col == 5:
+            # prtMarkerSuppliesType — the real type (3=toner, 9=drum, ...)
             by_index[idx]["type_int"] = int(value) if value is not None else None
         elif col == 6:
             by_index[idx]["description"] = str(value) if value else ""
@@ -424,6 +445,8 @@ def _parse_supplies(walk_rows: list) -> list[dict]:
         max_cap = info.get("max_cap")
         desc = info.get("description", "")
         type_int = info.get("type_int")
+        if type_int is None:
+            type_int = info.get("class_int")
 
         level_pct = None
         if level is not None and max_cap and max_cap > 0 and level >= 0:
@@ -444,6 +467,89 @@ def _parse_supplies(walk_rows: list) -> list[dict]:
         toners[0]["color"] = "black"
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Brother proprietary enrichment
+# ---------------------------------------------------------------------------
+
+def _decode_brother_blob(value) -> dict:
+    """Decode the Brother maintenance blob into {record_id: int_value}."""
+    if value is None:
+        return {}
+    if isinstance(value, (bytes, bytearray)):
+        raw = bytes(value)
+    else:
+        s = str(value).strip()
+        if s.lower().startswith("0x"):
+            try:
+                raw = bytes.fromhex(s[2:])
+            except ValueError:
+                return {}
+        else:
+            raw = s.encode("latin-1", errors="ignore")
+
+    records: dict = {}
+    i = 0
+    while i + 7 <= len(raw):
+        rid = raw[i]
+        if rid == 0xFF:
+            break
+        if raw[i + 1] == 0x01 and raw[i + 2] == 0x04:
+            records[rid] = int.from_bytes(raw[i + 3:i + 7], "big")
+            i += 7
+        else:
+            break
+    return records
+
+
+def _enrich_brother(ip, community, timeout, retries, supplies, serial, page_count):
+    """
+    Fill gaps from Brother's proprietary OIDs: serial, page count, and — for
+    the mono case where exactly one toner has no level — the toner %.
+    Returns (serial, page_count), both possibly updated.
+    """
+    try:
+        result = snmp_get(ip, [OID_BROTHER_SERIAL, OID_BROTHER_MAINTENANCE],
+                          community, timeout, retries)
+        if not result:
+            return serial, page_count
+
+        serial_val = maintenance_val = None
+        for k, v in result.items():
+            ks = k.lstrip(".")
+            if ks.startswith(OID_BROTHER_SERIAL.lstrip(".")):
+                serial_val = v
+            elif ks.startswith(OID_BROTHER_MAINTENANCE.lstrip(".")):
+                maintenance_val = v
+
+        if not serial and serial_val:
+            s = str(serial_val).strip()
+            if s:
+                serial = s
+
+        records = _decode_brother_blob(maintenance_val)
+
+        if page_count is None and 0x11 in records:
+            page_count = records[0x11]
+
+        unknown_toners = [s for s in supplies
+                          if s["supply_type"] == "tonerCartridge" and s["level_pct"] is None]
+        if len(unknown_toners) == 1:
+            pct = None
+            v = records.get(0x81)
+            if v is not None and 0 <= v <= 100:
+                pct = int(v)
+            else:
+                v = records.get(0x6F)
+                if v is not None and 0 <= v <= 10000:
+                    pct = round(v / 100)
+            if pct is not None:
+                unknown_toners[0]["level_pct"] = pct
+                logger.debug("Brother enrich: toner %d%% from blob for %s", pct, ip)
+    except Exception:
+        logger.debug("Brother enrichment failed for %s", ip, exc_info=True)
+    return serial, page_count
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +612,15 @@ def probe_printer(ip: str, community: str, timeout: int = 3, retries: int = 1) -
     walk_rows = snmp_walk(ip, OID_PRT_SUPPLIES_TABLE, community, timeout, retries)
     supplies = _parse_supplies(walk_rows)
 
+    serial = str(serial_raw).strip() if serial_raw else None
+
+    # Brother hides the mono toner % (and sometimes serial/pages) in a
+    # proprietary maintenance blob — fill the gaps.
+    if vendor == "brother":
+        serial, page_count = _enrich_brother(
+            ip, community, timeout, retries, supplies, serial, page_count,
+        )
+
     # We consider it a printer if it has supply data OR a model containing printer keywords
     is_printer = bool(supplies)
     if not is_printer and model:
@@ -523,7 +638,7 @@ def probe_printer(ip: str, community: str, timeout: int = 3, retries: int = 1) -
         "ip": ip,
         "vendor": vendor,
         "model": model,
-        "serial": str(serial_raw).strip() if serial_raw else None,
+        "serial": serial,
         "hostname": hostname or (str(sysname).strip() if sysname else None),
         "is_online": True,
         "page_count": page_count,
