@@ -109,6 +109,12 @@ def index():
         else:
             import_pending_rows.append(r)
 
+    # Potential duplicates: active printers sharing a serial number (reuses the
+    # set already loaded above — no extra query). dupe_count drives the nav badge.
+    from app.utils.duplicates import group_duplicate_printers
+    dupe_groups = group_duplicate_printers(list(printers_by_ip.values()))
+    dupe_count = len(dupe_groups)
+
     warn_pct = _get_setting("supply_warn_pct", str(THRESHOLD_WARN_DEFAULT))
     crit_pct = _get_setting("supply_crit_pct", str(THRESHOLD_CRIT_DEFAULT))
     poll_interval = _get_setting("poll_interval_minutes", str(POLL_INTERVAL_DEFAULT))
@@ -234,6 +240,8 @@ def index():
         import_undiscovered_rows=import_undiscovered_rows,
         removed_count=removed_count,
         removed_printers=removed_printers,
+        dupe_groups=dupe_groups,
+        dupe_count=dupe_count,
         alert_settings=alert_settings,
         alert_toggle_defs=ALERT_TOGGLE_DEFS,
         predictive_settings=predictive_settings,

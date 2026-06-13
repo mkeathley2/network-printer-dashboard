@@ -59,25 +59,9 @@ def list_printers():
         .all()
     )
     locations = db.session.query(Location).order_by(Location.name).all()
-
-    # Potential duplicates: active printers sharing a non-empty serial number.
-    # (Serial is the strong key — the same physical device can appear twice
-    # when added locally AND found by an agent, or re-discovered after a
-    # DHCP address change.)
-    from datetime import datetime as _dt
-    by_serial: dict[str, list] = {}
-    for p in printers:
-        if p.serial_number and p.serial_number.strip():
-            by_serial.setdefault(p.serial_number.strip().upper(), []).append(p)
-    dupe_groups = []
-    for serial_key in sorted(by_serial):
-        grp = by_serial[serial_key]
-        if len(grp) > 1:
-            grp.sort(key=lambda p: p.last_seen_at or _dt.min, reverse=True)
-            dupe_groups.append(grp)
-
+    # Duplicate detection now lives on the Config → Duplicates tab.
     return render_template("printers/list.html", printers=printers, removed=removed,
-                           locations=locations, dupe_groups=dupe_groups)
+                           locations=locations)
 
 
 @bp.route("/move-to-location", methods=["POST"])
@@ -262,8 +246,10 @@ def delete(printer_id: int):
     audit(current_user.username, "printer_delete", printer.ip_address,
           f"Removed printer {name} ({printer.ip_address})")
     flash(f"Printer {name} removed.", "success")
-    # Return to the tab the removal came from (e.g. the Duplicates tab)
+    # Return to the tab the removal came from
     return_tab = request.form.get("return_tab")
+    if return_tab == "config_duplicates":
+        return redirect(url_for("config.index", tab="duplicates"))
     if return_tab in ("duplicates", "removed"):
         return redirect(url_for("printers.list_printers", tab=return_tab))
     return redirect(url_for("printers.list_printers"))

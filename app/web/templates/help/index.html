@@ -223,16 +223,17 @@
           <p>
             The same physical printer can end up on the dashboard twice — typically when it was added
             locally <em>and</em> found by a remote agent, or re-discovered at a new IP after a DHCP
-            change. The <strong>Duplicates</strong> tab on the Printers page groups active printers that
-            share the same <strong>serial number</strong> (the reliable key — names and IPs can
-            legitimately differ or collide across sites).
+            change. The <strong>Config &rarr; Duplicates</strong> tab (admin only) groups active printers
+            that share the same <strong>serial number</strong> (the reliable key — names and IPs can
+            legitimately differ or collide across sites). A red badge on the tab shows how many duplicate
+            groups currently exist.
           </p>
           <p>
             Each group shows the rows side-by-side (name, IP, model, location, whether it came from a
             remote agent or was added locally, and last-seen time). The row with the most recent
             successful poll is badged <span class="badge bg-success">Most recent</span> — that's usually
             the one to keep. Click <strong>Remove</strong> on the other; it's a soft-delete, so history
-            is kept and it can be restored from the Removed tab if you picked wrong.
+            is kept and it can be restored from the <strong>Removed Printers</strong> tab if you picked wrong.
           </p>
         </section>
 

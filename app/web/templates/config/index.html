@@ -58,6 +58,13 @@
     </a>
   </li>
   <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'duplicates' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='duplicates') }}">
+      <i class="bi bi-front me-1"></i>Duplicates
+      {% if dupe_count %}<span class="badge bg-danger ms-1">{{ dupe_count }}</span>{% endif %}
+    </a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link {% if active_tab == 'updates' %}active{% endif %}"
        href="{{ url_for('config.index', tab='updates') }}">
       <i class="bi bi-cloud-download me-1"></i>Updates
@@ -950,6 +957,92 @@
     </table>
   </div>
 </div>
+
+<!-- ===================== DUPLICATES TAB ===================== -->
+{% elif active_tab == 'duplicates' %}
+<p class="text-muted small">
+  Active printers sharing the same <strong>serial number</strong> — usually the same physical
+  device on the dashboard twice (added locally <em>and</em> found by a remote agent, or
+  re-discovered at a new IP after a DHCP change). Compare each group and remove the one you don't
+  want; the row seen most recently is usually the one to keep. Removals are soft-deletes — history
+  is kept and a printer can be restored from the Removed Printers tab.
+</p>
+
+{% for grp in dupe_groups %}
+<div class="card mb-3">
+  <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+    <span><i class="bi bi-front me-1"></i>Serial: <code>{{ grp[0].serial_number }}</code></span>
+    <span class="badge bg-danger">{{ grp | length }} printers</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3">Status</th>
+          <th>Name / IP</th>
+          <th>Model</th>
+          <th>Location</th>
+          <th>Source</th>
+          <th>Last Seen</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in grp %}
+        <tr>
+          <td class="ps-3">
+            {% if p.is_online %}
+              <span class="badge bg-success">Online</span>
+            {% else %}
+              <span class="badge bg-danger">Offline</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="fw-semibold text-decoration-none">
+              {{ p.effective_name }}
+            </a>
+            <div class="text-muted small">{{ p.ip_address }}</div>
+          </td>
+          <td class="text-muted small">{{ p.model or '—' }}</td>
+          <td class="text-muted small">{{ p.location.name if p.location else '—' }}</td>
+          <td>
+            {% if p.agent %}
+              <span class="badge bg-info text-dark" title="Reported by remote agent">{{ p.agent.name }}</span>
+            {% else %}
+              <span class="badge bg-secondary">Local</span>
+            {% endif %}
+          </td>
+          <td class="text-muted small">
+            {{ p.last_seen_at | localtime if p.last_seen_at else 'Never' }}
+            {% if loop.first and p.last_seen_at %}
+              <span class="badge bg-success ms-1" title="Most recent successful poll — usually the one to keep">Most recent</span>
+            {% endif %}
+          </td>
+          <td class="text-end pe-3">
+            <a href="{{ url_for('printers.detail', printer_id=p.id) }}" class="btn btn-sm btn-outline-primary me-1">View</a>
+            <form method="POST" action="{{ url_for('printers.delete', printer_id=p.id) }}"
+                  style="display:inline"
+                  onsubmit="return confirm('Remove {{ p.effective_name }} ({{ p.ip_address }})? Its history is kept and it can be restored later.')">
+              <input type="hidden" name="return_tab" value="config_duplicates">
+              <button type="submit" class="btn btn-sm btn-outline-danger">
+                <i class="bi bi-trash me-1"></i>Remove
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-body text-center text-muted py-5">
+    <i class="bi bi-check-circle display-6 text-success"></i>
+    <p class="mt-2 mb-0">No duplicates detected — no two active printers share a serial number.</p>
+  </div>
+</div>
+{% endfor %}
 
 <!-- ===================== UPDATES TAB ===================== -->
 {% elif active_tab == 'updates' %}

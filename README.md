@@ -48,7 +48,7 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - Smart toner-color parsing (e.g. Kyocera TK-5242C → Cyan)
 
 ### Duplicate Detection
-- A **Duplicates** tab on the Printers page groups active printers that share a serial number — usually the same physical device added twice (locally + via an agent, or re-discovered after a DHCP change)
+- A **Config → Duplicates** tab (admin only) groups active printers that share a serial number — usually the same physical device added twice (locally + via an agent, or re-discovered after a DHCP change); a red badge shows how many duplicate groups exist
 - Each group shows name / IP / model / location / source side-by-side, badges the most-recently-seen row, and lets you remove the extra in one click
 
 ### Reports (all six available to every signed-in user, with CSV export)
