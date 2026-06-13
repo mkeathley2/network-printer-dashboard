@@ -252,6 +252,13 @@
             remaining". The dashboard (and remote agents) read the real percentage from Brother's
             proprietary maintenance data instead, so these models show accurate toner levels too.
           </p>
+          <p class="text-muted small">
+            <strong>Vendor &amp; hostname:</strong> the dashboard recognizes HP, Brother, Canon,
+            Kyocera, Ricoh, and Konica Minolta (bizhub); anything else is monitored as a generic
+            SNMP printer. The hostname comes from the printer's SNMP system name, or — when that's
+            blank (common on Konica Minolta) — falls back to its network (reverse-DNS) name, matching
+            what you see in the printer's own web interface.
+          </p>
 
           <h3>Warning vs. Critical thresholds</h3>
           <p>

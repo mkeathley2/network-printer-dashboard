@@ -154,6 +154,8 @@ def _run_migrations() -> None:
         "ALTER TABLE users MODIFY COLUMN role ENUM('admin','viewer','superadmin') NOT NULL DEFAULT 'viewer'",
         # --- Supplies-under-contract flag (v0.0.25) ---
         "ALTER TABLE printers ADD COLUMN supplies_under_contract BOOLEAN NOT NULL DEFAULT 0",
+        # --- Konica Minolta vendor (v0.0.28) ---
+        "ALTER TABLE printers MODIFY COLUMN vendor ENUM('hp','brother','canon','kyocera','ricoh','konica','generic') NOT NULL DEFAULT 'generic'",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import socket
 from typing import Optional
 
 from app.snmp import oids
@@ -20,11 +21,12 @@ logger = logging.getLogger(__name__)
 
 # Maps enterprise OID number (string) → vendor name
 _ENTERPRISE_VENDOR_MAP = {
-    "11":   "hp",
-    "2435": "brother",
-    "1602": "canon",
-    "1347": "kyocera",
-    "367":  "ricoh",
+    "11":    "hp",
+    "2435":  "brother",
+    "1602":  "canon",
+    "1347":  "kyocera",
+    "367":   "ricoh",
+    "18334": "konica",
 }
 
 # One well-known OID per vendor, used for last-resort detection when
@@ -64,6 +66,8 @@ def _detect_vendor(sysoid_value: Optional[str], sysdescr: Optional[str]) -> str:
             return "kyocera"
         if "ricoh" in descr_lower or "aficio" in descr_lower or "lanier" in descr_lower or "savin" in descr_lower:
             return "ricoh"
+        if "konica" in descr_lower or "minolta" in descr_lower or "bizhub" in descr_lower:
+            return "konica"
     return "generic"
 
 
@@ -129,7 +133,13 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
     if data.vendor == "generic":
         data.vendor = _detect_vendor_by_enterprise_probe(ip, snmp_params, timeout, retries)
 
-    data.sysname = sysname_val
+    # Hostname: prefer the SNMP system name when the admin has set it, but many
+    # printers (e.g. Konica Minolta bizhub) leave sysName blank — fall back to
+    # the network (reverse-DNS) name, which is what the printer's web UI shows.
+    if sysname_val and str(sysname_val).strip():
+        data.sysname = str(sysname_val).strip()
+    else:
+        data.sysname = _reverse_dns(ip)
 
     # Model: hrDeviceDescr (standard MIB) returns a clean model name on most printers
     # and is more reliable than parsing sysDescr. Vendor enrich may override later.
@@ -166,6 +176,23 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
         _enrich_colors_from_walk(ip, snmp_params, data, timeout, retries)
 
     return data
+
+
+def _reverse_dns(ip: str) -> Optional[str]:
+    """Best-effort reverse-DNS lookup for a printer's network hostname.
+
+    Used as the hostname fallback when SNMP sysName is blank. Bounded by a
+    short socket timeout so a missing PTR record can't stall the poll thread.
+    """
+    old_timeout = socket.getdefaulttimeout()
+    try:
+        socket.setdefaulttimeout(2)
+        host = socket.gethostbyaddr(ip)[0]
+        return host.strip() or None
+    except Exception:
+        return None
+    finally:
+        socket.setdefaulttimeout(old_timeout)
 
 
 def _first_val(result: dict, oid_prefix: str):

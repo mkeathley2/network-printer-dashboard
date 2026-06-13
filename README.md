@@ -41,7 +41,7 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 
 ### Vendor Support
 - Auto-detection from SNMP `sysObjectID`
-- Enhanced data for **HP**, **Brother**, **Canon**, **Kyocera/ECOSYS**, **Ricoh**
+- Enhanced data for **HP**, **Brother**, **Canon**, **Kyocera/ECOSYS**, **Ricoh**, **Konica Minolta** (bizhub)
 - **Brother mono lasers** (HL-L2xxx, DCP/MFC-L2xxx) report toner as "unknown" in the standard MIB — the dashboard reads the real percentage from Brother's proprietary maintenance data so these models show accurate toner levels
 - Generic RFC 3805 Printer-MIB support for any other SNMP-capable printer
 - Correct supply-type detection (toner vs. drum/imaging unit vs. waste) so drum alerts and the toner-only reports stay accurate

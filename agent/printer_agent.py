@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.27
+Version: v0.0.28
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -96,7 +96,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.27"
+AGENT_VERSION = "v0.0.28"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -120,11 +120,12 @@ OID_BROTHER_SERIAL       = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.1.0"
 OID_BROTHER_MAINTENANCE  = "1.3.6.1.4.1.2435.2.3.9.4.2.1.5.5.8.0"
 
 VENDOR_OID_PREFIXES = {
-    "1.3.6.1.4.1.11.":   "hp",
-    "1.3.6.1.4.1.2435.": "brother",
-    "1.3.6.1.4.1.1602.": "canon",
-    "1.3.6.1.4.1.1347.": "kyocera",
-    "1.3.6.1.4.1.367.":  "ricoh",
+    "1.3.6.1.4.1.11.":    "hp",
+    "1.3.6.1.4.1.2435.":  "brother",
+    "1.3.6.1.4.1.1602.":  "canon",
+    "1.3.6.1.4.1.1347.":  "kyocera",
+    "1.3.6.1.4.1.367.":   "ricoh",
+    "1.3.6.1.4.1.18334.": "konica",
 }
 
 # RFC 3805 PrtMarkerSuppliesTypeTC values (column 5 of the supplies table).
@@ -394,6 +395,8 @@ def _detect_vendor(sysoid: Optional[str], sysdescr: Optional[str]) -> str:
             return "kyocera"
         if "ricoh" in low or "aficio" in low:
             return "ricoh"
+        if "konica" in low or "minolta" in low or "bizhub" in low:
+            return "konica"
     return "generic"
 
 

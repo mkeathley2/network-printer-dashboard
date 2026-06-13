@@ -192,7 +192,7 @@ def _process_printer(agent: RemoteAgent, ip: str, p_data: dict) -> None:
 
     # --- Update fields ---
     vendor_raw = (p_data.get("vendor") or "generic").lower()
-    valid_vendors = ("hp", "brother", "canon", "kyocera", "ricoh", "generic")
+    valid_vendors = ("hp", "brother", "canon", "kyocera", "ricoh", "konica", "generic")
     printer.vendor = vendor_raw if vendor_raw in valid_vendors else "generic"
     if p_data.get("model"):
         printer.model = str(p_data["model"])[:255]

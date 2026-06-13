@@ -40,7 +40,7 @@ class Printer(Base):
     hostname: Mapped[Optional[str]] = mapped_column(String(255))
     display_name: Mapped[Optional[str]] = mapped_column(String(255))
     vendor: Mapped[str] = mapped_column(
-        Enum("hp", "brother", "canon", "kyocera", "ricoh", "generic", name="vendor_enum"),
+        Enum("hp", "brother", "canon", "kyocera", "ricoh", "konica", "generic", name="vendor_enum"),
         nullable=False,
         default="generic",
     )
