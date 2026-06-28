@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.29
+Version: v0.0.30
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -96,7 +96,7 @@ _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
 _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logger.addHandler(_file_handler)
 
-AGENT_VERSION = "v0.0.29"
+AGENT_VERSION = "v0.0.30"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -1007,6 +1007,56 @@ def run_once(cfg: dict) -> None:
         run_once(cfg)
 
 
+def _cleanup_orphan_mei() -> None:
+    """
+    Remove abandoned PyInstaller one-file extraction folders (``_MEIxxxxxx``)
+    left in the temp directory by earlier agent runs.
+
+    A one-file ``.exe`` unpacks its entire bundle into ``%TEMP%\\_MEIxxxxxx`` on
+    every launch and only deletes it again on a *clean* exit — a kill, crash, or
+    reboot orphans that ~19 MB folder.  Run as SYSTEM, ``%TEMP%`` is
+    ``C:\\Windows\\Temp``, so these pile up there.  We delete only folders that
+    contain a ``pysnmp`` subtree (ours — never some other app's PyInstaller
+    bundle), skip the one this process is currently using, and skip very recent
+    folders (a concurrently-starting instance).  Best-effort: never raises.
+    """
+    try:
+        import shutil
+        import tempfile
+
+        temp_dir = tempfile.gettempdir()
+        current = None
+        mei = getattr(sys, "_MEIPASS", None)
+        if mei:
+            current = os.path.basename(os.path.normpath(mei))
+
+        removed = 0
+        now = time.time()
+        for name in os.listdir(temp_dir):
+            if not name.startswith("_MEI") or name == current:
+                continue
+            path = os.path.join(temp_dir, name)
+            if not os.path.isdir(path):
+                continue
+            # Only our bundles (they contain a pysnmp package) — leave others alone
+            if not os.path.isdir(os.path.join(path, "pysnmp")):
+                continue
+            # Skip folders touched in the last 30 min (a concurrent start)
+            try:
+                if now - os.path.getmtime(path) < 1800:
+                    continue
+            except OSError:
+                pass
+            shutil.rmtree(path, ignore_errors=True)
+            if not os.path.isdir(path):
+                removed += 1
+        if removed:
+            logger.info("Cleaned %d orphaned PyInstaller temp folder(s) from %s",
+                        removed, temp_dir)
+    except Exception:
+        logger.exception("Orphan _MEI cleanup failed (non-fatal)")
+
+
 def main_loop(cfg: dict) -> None:
     logger.info("Agent starting. Version %s. Subnets: %s",
                 AGENT_VERSION, cfg.get("subnets"))
@@ -1045,13 +1095,28 @@ def main():
         cfg = setup_config(args)
         if not args.once:
             return  # Non-interactive setup from installer: just write config
-    else:
-        cfg = load_config()
+        run_once(cfg)  # --setup --once: configure, then a single scan
+        return
 
     if args.once:
-        run_once(cfg)
-    else:
-        main_loop(cfg)
+        run_once(load_config())  # single scan then exit (testing)
+        return
+
+    # Service mode (default): NEVER hard-exit.  If this process exits, the
+    # scheduled task's restart trigger relaunches it about once a minute, and
+    # every PyInstaller one-file launch leaks a ~19 MB _MEI temp folder — that
+    # is what filled C:\Windows\Temp with ~300 GB on one server.  Contain every
+    # failure here (including startup / config-load errors) by sleeping in
+    # process and retrying, so the process simply stays alive on a bad day.
+    while True:
+        try:
+            _cleanup_orphan_mei()         # sweep abandoned _MEI dirs from prior runs
+            main_loop(load_config())      # normally loops forever
+        except SystemExit:
+            raise                         # allow the self-update clean exit (code 0)
+        except Exception:
+            logger.exception("Fatal error in agent startup/loop — sleeping 15 min, then retrying")
+            time.sleep(15 * 60)
 
 
 if __name__ == "__main__":

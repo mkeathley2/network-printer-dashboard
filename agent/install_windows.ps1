@@ -107,10 +107,15 @@ $action = New-ScheduledTaskAction `
 
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
+# RestartInterval is intentionally 15 min, not 1 min: if the agent ever exits
+# abnormally, a tight 1-min restart loop relaunches the one-file .exe ~60x/hr,
+# and each launch leaks a ~19 MB PyInstaller _MEI temp folder.  The agent now
+# self-contains failures (it sleeps and retries in-process rather than exiting),
+# so restarts should be rare; 15-min recovery is fine for a 60-min poller.
 $settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit 0 `
     -RestartCount 10 `
-    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -RestartInterval (New-TimeSpan -Minutes 15) `
     -StartWhenAvailable `
     -RunOnlyIfNetworkAvailable
 

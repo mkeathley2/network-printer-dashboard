@@ -96,6 +96,7 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - One-line install command (PowerShell on Windows, bash on Pi). Works cleanly from ConnectWise Backstage / RMM tools running as SYSTEM
 - **Auto-detects the local subnet by default** — leave the subnet blank when creating the agent (recommended for single-subnet sites) and it figures out what to scan on first run via the outbound interface + the actual mask from `ipconfig` / `ip addr`, then reports the detected CIDR back to the dashboard. Specifying an explicit subnet remains fully supported for multi-subnet machines
 - **Auto-updates** when the dashboard version changes (Windows uses a swap-on-restart helper to replace the running .exe)
+- **Self-cleaning temp**: on startup the Windows agent sweeps leftover PyInstaller `_MEI` extraction folders from `C:\Windows\Temp`, and it contains errors in-process instead of exiting — so a crash can't turn into a restart loop that fills the system drive (v0.0.30)
 - **Per-agent printer count** on the agents table — spot agents that found nothing and delete them
 - Subnet, scan interval, and location editable from the dashboard
 - Stale-detection alerts when an agent stops checking in

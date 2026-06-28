@@ -714,6 +714,26 @@ docker compose up --build -d</code></pre>
             uninstall ACK only applies to agents that have actually been deployed and are checking in).
           </p>
 
+          <h3>A Windows agent filled <code>C:\Windows\Temp</code> with <code>_MEI</code> folders</h3>
+          <p>
+            The Windows agent ships as a single self-contained <code>.exe</code>. Internally that exe
+            unpacks itself into a temporary <code>_MEIxxxxxx</code> folder on each launch and only cleans
+            it up on a clean shutdown. If the agent was being killed and relaunched repeatedly (for
+            example a restart loop), those ~19&nbsp;MB folders could pile up in <code>C:\Windows\Temp</code>.
+            <strong>Agent v0.0.30 fixes this</strong>: it now sweeps leftover <code>_MEI</code> folders on
+            startup and no longer exits on errors (so the scheduler can't relaunch it in a tight loop).
+            To clean up an already-affected machine, stop the task and delete the leftovers:
+          </p>
+          <pre><code>Stop-ScheduledTask -TaskName PrinterAgent
+Get-ChildItem 'C:\Windows\Temp' -Directory -Filter '_MEI*' |
+  Where-Object { Test-Path (Join-Path $_.FullName 'pysnmp') } |
+  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+Start-ScheduledTask -TaskName PrinterAgent</code></pre>
+          <p class="text-muted small mb-0">
+            Only folders containing a <code>pysnmp</code> subfolder are removed, so other applications'
+            temp files are left untouched.
+          </p>
+
           <h3>An update failed — how do I roll back?</h3>
           <p>
             Since updates are applied manually via <code>git pull</code>, rolling back is just as easy:
