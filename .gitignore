@@ -1,6 +1,9 @@
 # Secrets — never commit
 .env
 
+# Private maintainer notes (infra access details) — carried by hand, never pushed
+HANDOFF-PRIVATE.md
+
 # Backups
 backups/
 
