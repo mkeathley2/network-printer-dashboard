@@ -65,6 +65,13 @@
     </a>
   </li>
   <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'discovered' %}active{% endif %}"
+       href="{{ url_for('config.index', tab='discovered') }}">
+      <i class="bi bi-binoculars me-1"></i>Discovered
+      {% if discovered_pending_count %}<span class="badge bg-primary ms-1">{{ discovered_pending_count }}</span>{% endif %}
+    </a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link {% if active_tab == 'updates' %}active{% endif %}"
        href="{{ url_for('config.index', tab='updates') }}">
       <i class="bi bi-cloud-download me-1"></i>Updates
@@ -666,6 +673,130 @@
     </div>
 
   </div>
+
+  <div class="col-lg-6">
+    <!-- Remote clients: set check-in interval for all -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-hdd-network me-1"></i>Remote Client Check-In Interval (All Clients)</div>
+      <div class="card-body">
+        <p class="text-muted small mb-2">
+          Sets how often <strong>every</strong> remote client scans its site and checks in.
+          This overwrites each client's current setting. You can still set an individual
+          client differently afterwards on the <a href="{{ url_for('config.index', tab='agents') }}">Remote Agents</a> tab
+          (the clock button).
+        </p>
+        <p class="small mb-3">
+          Right now:
+          {% for minutes, count in agent_interval_summary | dictsort %}
+            <span class="badge bg-light text-dark border">{{ count }} client{{ 's' if count != 1 }} at {{ minutes }} min</span>
+          {% else %}
+            <span class="text-muted">no remote clients yet</span>
+          {% endfor %}
+        </p>
+        <form method="POST" action="{{ url_for('config.agent_set_interval_all') }}"
+              onsubmit="return confirm('Change the check-in interval for ALL remote clients?\n\nEach client switches at its next check-in, so a client currently on a long interval can take that long to change.');">
+          <div class="mb-3">
+            <label class="form-label">Check in every</label>
+            <div class="input-group" style="width:160px;">
+              <input type="number" name="scan_interval_minutes" class="form-control" min="5" max="1440" value="60" required>
+              <span class="input-group-text">min</span>
+            </div>
+            <div class="form-text">Range: 5–1440 (24 hrs). 60 = hourly, 360 = every 6 hours.</div>
+          </div>
+          <button type="submit" class="btn btn-primary" {% if not agents %}disabled{% endif %}>
+            <i class="bi bi-save me-1"></i>Apply to All Clients
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Offline review tickets -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-ticket-perforated me-1"></i>Offline Review Tickets</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Sends <strong>one</strong> helpdesk ticket when a printer or a remote client has been gone for a
+          long time, so someone checks whether it was replaced or removed. This works even when the
+          "Printer Offline" alert email is turned off. Only outages that reach the limit after this
+          feature was installed create a ticket. See everything that is offline on the
+          <a href="{{ url_for('reports.offline') }}">Offline Printers report</a>.
+          Requires the <strong>helpdesk email</strong> on the SMTP tab.
+        </p>
+        <form method="POST" action="{{ url_for('config.save_offline_review_settings') }}">
+          <div class="mb-3">
+            <label class="form-label">Printer offline ticket after</label>
+            <div class="input-group" style="width:160px;">
+              <input type="number" name="long_offline_ticket_days" class="form-control" min="0" max="365"
+                     value="{{ offline_review_settings.printer_days }}" required>
+              <span class="input-group-text">days</span>
+            </div>
+            <div class="form-text">Default 15. Set 0 to turn off. Printers behind a client that is itself not reporting are skipped.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Remote client not checking in — ticket after</label>
+            <div class="input-group" style="width:160px;">
+              <input type="number" name="stale_agent_ticket_days" class="form-control" min="0" max="365"
+                     value="{{ offline_review_settings.agent_days }}" required>
+              <span class="input-group-text">days</span>
+            </div>
+            <div class="form-text">Default 15. Set 0 to turn off.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Ask the helpdesk to assign client tickets to</label>
+            <input type="text" name="stale_agent_ticket_assignee" class="form-control" style="max-width:280px;"
+                   maxlength="100" value="{{ offline_review_settings.assignee }}">
+            <div class="form-text">Shown in the ticket subject and body. Leave blank for no assignment note.</div>
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Daily network scan -->
+    <div class="card mb-3">
+      <div class="card-header fw-semibold"><i class="bi bi-binoculars me-1"></i>Daily Network Scan (VPN Sites)</div>
+      <div class="card-body">
+        <p class="text-muted small mb-3">
+          Once a day the server scans the networks it polls directly and lists anything new on the
+          <a href="{{ url_for('config.index', tab='discovered') }}">Discovered</a> tab for you to approve or ignore.
+          Nothing is added to the dashboard automatically. Remote client sites are not included — each client
+          already rescans its own site.
+        </p>
+        <form method="POST" action="{{ url_for('config.save_auto_scan_settings') }}">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" name="auto_scan_enabled" id="auto_scan_enabled"
+                   {% if auto_scan_settings.enabled %}checked{% endif %}>
+            <label class="form-check-label" for="auto_scan_enabled">Run the daily scan</label>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Time of day</label>
+            <select name="auto_scan_hour" class="form-select" style="width:160px;">
+              {% for h in range(24) %}
+              <option value="{{ h }}" {% if auto_scan_settings.hour == h %}selected{% endif %}>
+                {{ '12' if h % 12 == 0 else h % 12 }}:00 {{ 'AM' if h < 12 else 'PM' }}
+              </option>
+              {% endfor %}
+            </select>
+            <div class="form-text">In the dashboard's timezone ({{ timezone }}).</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Extra subnets to scan <span class="text-muted small">(optional)</span></label>
+            <input type="text" name="auto_scan_extra_subnets" class="form-control"
+                   placeholder="e.g. 10.0.20.0/24, 10.47.70.0/24" value="{{ auto_scan_settings.extra_subnets }}">
+            <div class="form-text">
+              Every /24 that already has a server-polled printer is scanned automatically
+              ({{ auto_scan_settings.subnets | length }} subnet{{ 's' if auto_scan_settings.subnets | length != 1 }} right now).
+              Add others here, separated by commas. Nothing larger than a /20.
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save</button>
+        </form>
+        {% if auto_scan_settings.last_run %}
+        <p class="text-muted small mt-3 mb-0">Last scan: {{ auto_scan_settings.last_run }} UTC — {{ auto_scan_settings.last_summary }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 </div>
 <!-- ===================== ACTIVITY LOG TAB ===================== -->
 {% elif active_tab == 'activity' %}
@@ -937,6 +1068,9 @@
           <td class="ps-3">
             <span class="fw-semibold">{{ p.effective_name }}</span>
             <div class="text-muted small">{{ p.ip_address }}</div>
+            {% if p.notes and 'Auto-removed' in p.notes %}
+              <div class="small text-info" style="white-space:pre-wrap;"><i class="bi bi-info-circle me-1"></i>{{ p.notes }}</div>
+            {% endif %}
           </td>
           <td>{% if p.vendor %}<span class="badge bg-secondary">{{ p.vendor | upper }}</span>{% else %}—{% endif %}</td>
           <td class="text-muted small">{{ p.model or '—' }}</td>
@@ -1043,6 +1177,102 @@
   </div>
 </div>
 {% endfor %}
+
+<!-- ===================== DISCOVERED (AUTO-SCAN REVIEW) TAB ===================== -->
+{% elif active_tab == 'discovered' %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div class="text-muted small flex-grow-1">
+    Devices the daily network scan found on the VPN sites that are not on the dashboard.
+    <strong>Approve</strong> the printers; <strong>Ignore</strong> anything that is not a printer (a UPS, a switch…) and it will not be suggested again.
+    {% if auto_scan_settings.last_run %}<br>Last scan: {{ auto_scan_settings.last_run }} UTC — {{ auto_scan_settings.last_summary }}{% endif %}
+    {% if not auto_scan_settings.enabled %}<br><span class="text-warning">The daily scan is turned off (Thresholds tab).</span>{% endif %}
+  </div>
+  <form method="POST" action="{{ url_for('config.run_auto_scan_now') }}">
+    <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-clockwise me-1"></i>Scan Now</button>
+  </form>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('config.index', tab='thresholds') }}"><i class="bi bi-sliders me-1"></i>Scan Settings</a>
+</div>
+
+<form method="POST" action="{{ url_for('config.discovered_decide') }}" id="discoveredForm">
+<div class="card mb-4">
+  <div class="card-header fw-semibold d-flex flex-wrap align-items-center gap-2">
+    <span class="me-auto">Waiting for Review <span class="badge bg-primary">{{ discovered_pending | length }}</span></span>
+    <select name="location_id" class="form-select form-select-sm" style="width:auto;" title="Location for approved printers">
+      <option value="">Location: (leave blank)</option>
+      {% for loc in locations %}<option value="{{ loc.id }}">{{ loc.name }}</option>{% endfor %}
+    </select>
+    <button type="submit" name="action" value="approve" class="btn btn-sm btn-success">
+      <i class="bi bi-check-lg me-1"></i>Approve Selected
+    </button>
+    <button type="submit" name="action" value="ignore" class="btn btn-sm btn-outline-secondary"
+            onclick="return confirm('Ignore the selected device(s)? They will not be suggested again (you can undo this below).');">
+      <i class="bi bi-eye-slash me-1"></i>Ignore Selected
+    </button>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover table-sm mb-0 align-middle">
+      <thead class="table-light">
+        <tr>
+          <th class="ps-3" style="width:36px;"><input type="checkbox" class="form-check-input" title="Select all"
+              onclick="document.querySelectorAll('#discoveredForm input[name=device_ids]').forEach(c => c.checked = this.checked)"></th>
+          <th>IP Address</th><th>Name</th><th>Vendor</th><th>Model / Description</th><th>Subnet</th><th>First Found</th><th>Last Answered</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in discovered_pending %}
+        <tr>
+          <td class="ps-3"><input type="checkbox" class="form-check-input" name="device_ids" value="{{ d.id }}"></td>
+          <td>
+            <a href="http://{{ d.ip_address }}" target="_blank" title="Open the device's web page">{{ d.ip_address }}</a>
+            {% set rp = removed_by_ip.get(d.ip_address) %}
+            {% if rp %}
+              <div class="small text-warning"><i class="bi bi-archive me-1"></i>Same IP as removed printer "{{ rp.effective_name }}" — approving restores it</div>
+            {% endif %}
+          </td>
+          <td class="small">{{ d.hostname or '—' }}</td>
+          <td>{% if d.vendor_detected and d.vendor_detected != 'generic' %}<span class="badge bg-secondary">{{ d.vendor_detected | upper }}</span>{% else %}<span class="text-muted small">unknown</span>{% endif %}</td>
+          <td class="small text-muted">{{ d.model_detected or '—' }}</td>
+          <td class="small text-muted">{{ d.subnet or '—' }}</td>
+          <td class="small text-muted">{{ d.first_seen_at | localtime }}</td>
+          <td class="small text-muted">{{ d.last_seen_at | localtime if d.last_seen_at else '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">Nothing waiting for review.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</form>
+
+<div class="card">
+  <div class="card-header fw-semibold">Ignored Devices <span class="badge bg-secondary">{{ discovered_ignored | length }}</span></div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead class="table-light">
+        <tr><th class="ps-3">IP Address</th><th>Name</th><th>Model / Description</th><th>Ignored By</th><th>When</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for d in discovered_ignored %}
+        <tr>
+          <td class="ps-3">{{ d.ip_address }}</td>
+          <td class="small">{{ d.hostname or '—' }}</td>
+          <td class="small text-muted">{{ d.model_detected or '—' }}</td>
+          <td class="small text-muted">{{ d.decided_by or '—' }}</td>
+          <td class="small text-muted">{{ d.decided_at | localtime if d.decided_at else '—' }}</td>
+          <td class="text-end pe-3">
+            <form method="POST" action="{{ url_for('config.discovered_unignore', device_id=d.id) }}" style="display:inline">
+              <button type="submit" class="btn btn-sm btn-outline-secondary py-0">Un-ignore</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-3">No ignored devices.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
 
 <!-- ===================== UPDATES TAB ===================== -->
 {% elif active_tab == 'updates' %}
@@ -1485,6 +1715,13 @@ function confirmReset(form) {
               </td>
               <td class="text-muted small">
                 {{ agent.last_checkin_at | localtime if agent.last_checkin_at else 'Never' }}
+                <div>every {{ agent.scan_interval_minutes }} min
+                  {% if agent.keep_awake %}
+                    <span class="badge bg-success-subtle text-success border" title="Keep-awake ON: the client asks Windows not to idle-sleep">awake</span>
+                  {% else %}
+                    <span class="badge bg-light text-muted border" title="Keep-awake OFF: the PC may sleep and miss check-ins">may sleep</span>
+                  {% endif %}
+                </div>
               </td>
               <td class="text-muted small">
                 {{ agent.agent_version or '—' }}
@@ -1516,6 +1753,21 @@ function confirmReset(form) {
                             title="Force Update">
                       <i class="bi bi-cloud-download"></i>
                     </button>
+                  </form>
+                  <!-- Keep-awake toggle -->
+                  <form method="POST" action="{{ url_for('config.agent_set_keep_awake', agent_id=agent.id) }}">
+                    <input type="hidden" name="keep_awake" value="{{ '0' if agent.keep_awake else '1' }}">
+                    {% if agent.keep_awake %}
+                    <button type="submit" class="btn btn-sm btn-success py-0 px-1"
+                            title="Keep-awake is ON — click to turn OFF (let this PC sleep normally)">
+                      <i class="bi bi-cup-hot"></i>
+                    </button>
+                    {% else %}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary py-0 px-1"
+                            title="Keep-awake is OFF — click to turn ON (stop this PC idle-sleeping)">
+                      <i class="bi bi-moon"></i>
+                    </button>
+                    {% endif %}
                   </form>
                   <!-- Edit Interval button → collapse -->
                   <button class="btn btn-sm btn-outline-secondary py-0 px-1"

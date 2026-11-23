@@ -73,7 +73,7 @@
             <li><strong>Dashboard</strong> — live overview of every active printer</li>
             <li><strong>Discover</strong> — scan a subnet to find printers to add</li>
             <li><strong>Alerts</strong> — chronological log of every alert ever raised</li>
-            <li><strong>Reports</strong> — six analytical reports with CSV export</li>
+            <li><strong>Reports</strong> — seven analytical reports with CSV export</li>
             {% if current_user.is_admin %}
             <li><strong>Config</strong> <span class="badge bg-danger admin-tag">Admin</span> — all settings live here</li>
             {% endif %}
@@ -283,6 +283,46 @@
             again, a back-online email is sent.
           </p>
 
+          <h3>Long-offline review tickets</h3>
+          <p>
+            Separate from the offline alert email (which many sites turn off because short outages are noisy):
+            when a printer has been offline for <strong>15 days</strong> (adjustable), the dashboard sends
+            <strong>one</strong> helpdesk ticket asking someone to check whether it was replaced, moved or removed.
+            If a newer printer has appeared at the same site, the ticket names it as a <em>possible</em>
+            replacement — a hint, not a confirmed fact. You get one ticket per outage; it re-arms if the printer
+            comes back and goes offline again.
+          </p>
+          <ul>
+            <li>Printers behind a remote client that has itself stopped checking in are skipped — there is no data
+              from that site, so the client gets its own ticket instead (see <a href="#agents">Remote Agents</a>).</li>
+            <li>Only outages that reach the limit <em>after</em> the feature was installed create a ticket, so
+              upgrading does not produce a burst of tickets for printers that were already long gone.</li>
+            <li>Any offline printer's page has a red <strong>Offline Ticket</strong> button to send the same ticket
+              immediately, and the <em>Offline Printers</em> report has one on every row.</li>
+            <li>Change the number of days (or set 0 to turn it off) in <em>Config → Thresholds → Offline Review Tickets</em>.</li>
+          </ul>
+
+          <h3>When a printer is replaced at the same IP address</h3>
+          <p>
+            For printers the server polls directly (not remote-client printers): if the device answering at a
+            printer's IP reports a <strong>different serial number on two polls in a row</strong>, the dashboard
+            treats it as a different physical printer instead of mixing the two histories together:
+          </p>
+          <ul>
+            <li><strong>Serial already known</strong> (another printer on the dashboard, or one in Removed) —
+              that printer was <em>moved</em>. Its record and full history follow it to the new IP, and it is
+              restored automatically if it was in Removed.</li>
+            <li><strong>Serial never seen before</strong> — a <em>new</em> printer. A fresh record is started at
+              that IP, with the location, name and assignment copied from the old one (please verify them).</li>
+            <li>Either way the printer that used to be at that IP goes to <em>Config → Removed Printers</em> with a
+              note explaining why. Nothing is deleted — its history is kept and it can be restored.</li>
+          </ul>
+          <p class="small text-muted">
+            A single odd reading is ignored; the change must be seen twice. With a 12-hour poll interval that means
+            up to a day before the switch happens — use <strong>Poll Now</strong> twice to confirm it immediately.
+            Each change is recorded in the Activity Log (<code>printer_replaced</code> / <code>printer_moved</code>).
+          </p>
+
           <div class="alert alert-secondary py-2">
             <i class="bi bi-envelope me-1"></i>
             <strong>Emails only send if SMTP is configured.</strong> If you're not getting alert emails,
@@ -329,7 +369,7 @@
         <section id="reports" class="help-section">
           <h2>5. Reports</h2>
           <p>
-            The <strong>Reports</strong> tab (top nav) has six pre-built reports. All are visible to
+            The <strong>Reports</strong> tab (top nav) has seven pre-built reports. All are visible to
             every signed-in user. Each report has a filter bar (date range, printer, etc.), a chart,
             a sortable table, and a <strong>Download CSV</strong> button for exporting the underlying data.
           </p>
@@ -369,6 +409,13 @@
               <div class="border rounded p-3 h-100">
                 <i class="bi bi-shield-exclamation text-primary"></i> <strong>Reliability</strong>
                 <p class="small mb-0 mt-1">Offline event counts per printer. Higher numbers = more unreliable printer.</p>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="border rounded p-3 h-100">
+                <i class="bi bi-plug text-primary"></i> <strong>Offline Printers</strong>
+                <p class="small mb-0 mt-1">Every printer that is offline right now and for how many days, plus remote
+                  clients that have stopped checking in. Each row has a one-click <strong>Create Ticket</strong> button.</p>
               </div>
             </div>
           </div>
@@ -464,7 +511,12 @@
           <ul>
             <li><i class="bi bi-arrow-clockwise"></i> <strong>Rescan Now</strong> — tell the agent to scan immediately</li>
             <li><i class="bi bi-cloud-download"></i> <strong>Force Update</strong> — push the latest agent version</li>
-            <li><i class="bi bi-clock"></i> <strong>Edit Interval</strong> — change scan frequency</li>
+            <li><i class="bi bi-cup-hot"></i> / <i class="bi bi-moon"></i> <strong>Keep-awake</strong> — green cup = ON
+              (default): the client asks Windows not to idle-sleep while it runs, so the station PC keeps checking in.
+              Click to turn it OFF for a PC that should be allowed to sleep. The screen can still turn off; closing a
+              laptop lid, the power button and shutdown all still work. No effect on Raspberry Pi / Linux clients.</li>
+            <li><i class="bi bi-clock"></i> <strong>Edit Interval</strong> — change scan frequency for this one client.
+              To change <em>every</em> client at once use <em>Config → Thresholds → Remote Client Check-In Interval</em>.</li>
             <li><i class="bi bi-diagram-3"></i> <strong>Edit Subnet</strong> — push a new subnet (blank = auto-detect)</li>
             <li><i class="bi bi-geo-alt"></i> <strong>Assign Location</strong></li>
             <li><i class="bi bi-key"></i> <strong>Regenerate API Key</strong></li>
@@ -474,6 +526,27 @@
               if the agent has never checked in OR is offline (stale): immediately hard-deletes the row.
             </li>
           </ul>
+
+          <p>
+            Interval and keep-awake are sent to each client in <strong>every</strong> check-in reply, so a change
+            takes effect at that client's next check-in (a client on a 6-hour interval can take up to 6 hours).
+          </p>
+
+          <h3>Client stopped checking in</h3>
+          <p>
+            A client that misses two check-ins is flagged <strong>stale</strong>. If it stays silent for
+            <strong>15 days</strong> (adjustable in <em>Config → Thresholds</em>) the dashboard sends one helpdesk
+            ticket asking for it to be assigned to the person named there — usually the station PC was replaced or
+            re-imaged and the client needs reinstalling. While a client is stale its printers do not generate their
+            own offline tickets.
+          </p>
+
+          <h3>Client log size</h3>
+          <p>
+            <code>agent.log</code> on each client is capped: when it passes 2&nbsp;MB it is trimmed to its newest
+            1&nbsp;MB. Oversized logs left by older client versions are trimmed automatically the first time the
+            updated client starts.
+          </p>
 
           <h3>Auto-update</h3>
           <p>
@@ -568,6 +641,36 @@ sudo systemctl restart printer-agent</code></pre>
             to inherit the new value (the site default doesn't automatically apply to printers with their own
             overrides). The button shows the count of printers currently overridden and is disabled when
             there's nothing to clear.
+          </p>
+
+          <p>
+            The same tab also holds three site-wide controls:
+          </p>
+          <ul>
+            <li><strong>Remote Client Check-In Interval (All Clients)</strong> — set how often every remote client
+              checks in, in one step. It overwrites each client's current value; individual clients can still be
+              changed afterwards on the Remote Agents tab.</li>
+            <li><strong>Offline Review Tickets</strong> — days before the long-offline printer ticket and the
+              silent-client ticket are sent (0 = off), and whose name the client ticket asks to be assigned to.</li>
+            <li><strong>Daily Network Scan (VPN Sites)</strong> — on/off, time of day, and any extra subnets to scan.</li>
+          </ul>
+
+          <h3>Discovered — reviewing what the daily scan finds</h3>
+          <p>
+            Once a day the server scans every network it polls directly (each /24 that already has a printer, plus
+            any extra subnets you list) and puts anything new on <em>Config → Discovered</em>. <strong>Nothing is
+            added to the dashboard automatically</strong>, because scans also find things that are not printers.
+          </p>
+          <ul>
+            <li><strong>Approve Selected</strong> — adds the ticked devices as printers (optionally into a Location)
+              and polls them straight away. If the IP matches a printer in Removed, that printer is restored.</li>
+            <li><strong>Ignore Selected</strong> — for a UPS, a switch, or anything else you don't want. It is
+              remembered and never suggested again; <strong>Un-ignore</strong> in the list below brings it back.</li>
+            <li><strong>Scan Now</strong> — run the scan immediately instead of waiting for the daily run.</li>
+          </ul>
+          <p class="small text-muted">
+            Remote client sites are not part of this scan — each client rescans its own site on every check-in and
+            new printers there appear by themselves.
           </p>
 
           <h3>Predictive Toner Alerts</h3>

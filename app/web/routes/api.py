@@ -15,6 +15,7 @@ from app.models import (
     Location, Printer, SupplySnapshot, TelemetrySnapshot,
 )
 from app.utils.audit import audit
+from app.utils.printer_lookup import find_local_printer_by_ip
 from app.web.routes.auth import admin_required
 from app.web.routes.config import get_effective_thresholds
 
@@ -235,7 +236,7 @@ def _add_discovery_results(results: list, location_id: int | None):
     printer_ids: list[int] = []
 
     for r in results:
-        existing = db.session.query(Printer).filter_by(ip_address=r.ip_address).first()
+        existing = find_local_printer_by_ip(db.session, r.ip_address)
         if existing and existing.is_active:
             skipped += 1
             continue

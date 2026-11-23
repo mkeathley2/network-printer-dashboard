@@ -19,11 +19,22 @@ NEVER commit it; if absent, ask the owner for their copy).
 
 ## VERSION BUMP CHECKLIST
 Whenever the version number changes, ALL of the following in the SAME commit:
-1. `VERSION`  (e.g. `v0.0.31`)
-2. `agent/printer_agent.py` — `AGENT_VERSION = "v0.0.31"`  (line ~99)
-3. `agent/printer_agent.py` — docstring at top: `Version: v0.0.31`
+1. `VERSION`  (e.g. `v0.0.33`)
+2. `agent/printer_agent.py` — `AGENT_VERSION = "v0.0.33"`  (search for it)
+3. `agent/printer_agent.py` — docstring at top: `Version: v0.0.33`
+4. `release-notes/v0.0.33.md` — the release notes (becomes the GitHub release body)
 
-Then: 4. Commit ALL changed files  5. `git push`  6. `gh release create v0.0.31 ...`
+Then: 5. Commit ALL changed files  6. `git push` to **master** (the default branch —
+there is no `main`).
+
+**The release publishes itself.** `.github/workflows/auto-release.yml` fires when
+`VERSION` changes on master: it builds `printer_agent.exe`, creates the release
+`vX.Y.Z` with the notes file as its body, and attaches the exe before publishing.
+Do NOT also run `gh release create` (cloud Claude sessions can push but are not
+allowed to create releases — that is why this workflow exists). After pushing,
+confirm with `gh run list` / `gh release view vX.Y.Z` that it published, and only
+then tell the owner to run `./update.sh`: once the VM is on the new VERSION it
+tells every agent to update, and they download the exe from that release.
 
 Skipping any step causes agent version mismatches (dashboard auto-queues an
 update for any agent whose version ≠ VERSION) and desyncs the Updates tab.
@@ -50,7 +61,9 @@ bumps; that lockstep is intentional.
 | `VERSION` | Single source of truth for dashboard version |
 | `agent/printer_agent.py` | Standalone remote agent — `AGENT_VERSION` must match `VERSION` |
 | `agent/install_windows.ps1` / `install_pi.sh` | Site installers (served by the dashboard) |
-| `.github/workflows/build-agent-exe.yml` | Builds `printer_agent.exe` on every release |
+| `.github/workflows/auto-release.yml` | Publishes the release + `printer_agent.exe` when `VERSION` changes on master |
+| `.github/workflows/build-agent-exe.yml` | Fallback: builds the exe for a manually created release / manual rebuild |
+| `release-notes/vX.Y.Z.md` | Release notes, one file per version (used as the GitHub release body) |
 | `app/web/__init__.py` | App factory + `_run_migrations()` (all schema changes) + seeds |
 | `app/run.py` | Entry point + APScheduler jobs (poll, predictive, reports, stale agents) |
 | `app/web/routes/agent_api.py` | Agent check-in endpoint — auto-queues updates on version mismatch |
@@ -58,6 +71,9 @@ bumps; that lockstep is intentional.
 | `app/snmp/client.py` | SNMP get/walk — ALL values pass through `_coerce_value()` |
 | `app/snmp/vendor/*.py` | `generic.py` (RFC 3805 + vendor detect) + per-vendor enrich |
 | `app/alerts/evaluator.py` | Threshold/replacement detection, one-shot email state, tickets |
+| `app/alerts/offline_review.py` | Long-offline printer ticket + stale-agent ticket (hourly job), probable-replacement hint |
+| `app/scanner/poller.py` | Server poll (LOCAL printers only) + serial-change replace/move logic |
+| `app/scanner/auto_scan.py` | Daily scan of server-polled subnets → `discovered_devices` approval queue |
 | `update.sh` | The prod deploy script (run ON the VM) |
 | `config.yaml` | Non-secret defaults (SNMP timing, thresholds) — committed |
 
@@ -78,6 +94,19 @@ bumps; that lockstep is intentional.
   superadmin-only; last superadmin can't be demoted.
 - Data retention: monitoring data (snapshots, alert events, costs) is permanent;
   only the admin Activity Log auto-prunes (365 days, `app/utils/audit.py`).
+
+## POLLING + DB TRANSACTION RULES (v0.0.32 lesson)
+- Prod MariaDB enforces snapshot isolation: an UPDATE to a row that another
+  transaction changed since this transaction first read fails with error 1020
+  ("Record has changed since last read"). Agent check-ins and the server poll
+  both write `printers`.
+- NEVER hold a DB transaction open across network I/O (SNMP, SMTP). Read →
+  `rollback()` → do the slow work → re-read fresh → write → commit, one printer
+  per transaction. `poll_all_printers` and `offline_review` follow this; copy them.
+- The server poll covers LOCAL printers only (`agent_id IS NULL`). Agent printers
+  are written solely by `/api/agent/checkin`.
+- Dedup flags set after sending an email use a bare `UPDATE` in a fresh
+  transaction (`offline_review._exec_update`), never read-modify-write.
 
 ## MIGRATIONS
 All schema changes go in `_run_migrations()` in `app/web/__init__.py` as
@@ -112,6 +141,23 @@ listing EVERY value). They run automatically on container start.
   strands every Windows agent (rework path is in HANDOFF.md backlog).
 - **Release → exe gap**: the .exe asset appears ~2 min after
   `gh release create`; installs during the gap 404. Check Actions if in doubt.
+- **More than one LOCAL printer row can share an IP** (v0.0.33): replacing a
+  printer archives the old row and starts a new one at the same address (MariaDB
+  treats NULL `agent_id` as distinct in `uq_printer_ip_agent`). Never look a local
+  printer up with `filter_by(ip_address=…).first()` — use
+  `app/utils/printer_lookup.find_local_printer_by_ip()` (prefers the active row,
+  ignores agent rows).
+- **Serial-change logic needs two consecutive polls** agreeing on the new serial
+  (`Printer.pending_serial`) before it archives/moves anything, and
+  `_update_printer_status` never overwrites a differing serial. Don't "simplify"
+  either — one flaky SNMP read would split a printer's history. Agent printers
+  are excluded on purpose (sites reuse the same private IPs).
+- **Agent settings ride on every check-in reply** (`resp["settings"]`: interval,
+  keep_awake). The one-shot `pending_command="config"` slot is still used for
+  subnet pushes and as a fallback for pre-v0.0.33 agents; don't rely on it for
+  anything that must not be lost (an `update` command overwrites the slot).
+- **agent.log is trimmed in place**, not rotated: on the Pi systemd appends
+  stdout to the same file, and an in-place truncate keeps that writer valid.
 - The `/printers` list page is **orphaned** (nav link removed) — printer
   housekeeping lives in **Config** (Removed Printers, Duplicates tabs).
   Check Config before assuming a top-level nav tab exists.

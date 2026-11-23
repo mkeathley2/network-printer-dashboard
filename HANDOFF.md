@@ -65,6 +65,7 @@ bed; prod is the only deployment.
 | v0.0.30 | **Agent temp-leak fix**: `_MEI` startup sweep, never-hard-exit service mode, 15-min restart interval | One site leaked **307 GB / 16,717 folders** in `C:\Windows\Temp` — crash-relaunch ~1/min × onefile extraction. Root crash cause never diagnosed (deliberate; hardened instead) |
 | v0.0.31 | Maintainer handoff docs (this file, CLAUDE.md rewrite) | Development moved to a new Claude Code account |
 | v0.0.32 | **Poll fix**: per-printer transactions, server poll skips agent printers, failure counter capped | From ~2026-10-05 scheduled polls + Poll All saved nothing: one transaction spanned the whole ~7-min poll, and MariaDB snapshot isolation (error 1020 "Record has changed since last read") rejected it whenever an agent check-in touched a printer row meanwhile — rolling back the entire batch |
+| v0.0.33 | Auto-release workflow; agent keep-awake + log cap + settings-on-every-check-in + bulk interval; long-offline review tickets + stale-client ticket + Offline Ticket button + Offline Printers report; serial-change replace/move handling; daily VPN auto-scan with approve/ignore queue | Owner works remotely and could not tell replaced printers from dead ones (offline emails were off because of noise); station PCs slept and stopped checking in; one client's uncapped log nearly filled a disk; cloud Claude sessions cannot create GitHub releases |
 
 ## 4. Third-party integrations
 
@@ -159,8 +160,9 @@ VM is the **top backlog item**. Restore: Config → Restore (superadmin).
   multiple-choice; the owner decides trade-offs (they regularly pick the
   pragmatic option over the architecturally pure one — e.g. keeping the
   onefile exe with a sweep rather than switching to onedir).
-- Releases via `gh release create` with real, explanatory notes — the release
-  page doubles as the changelog. Commit messages: `vX.Y.Z: summary` + a body
+- Releases publish automatically when `VERSION` changes on master
+  (`auto-release.yml`); write real, explanatory notes in
+  `release-notes/vX.Y.Z.md` — the release page doubles as the changelog. Commit messages: `vX.Y.Z: summary` + a body
   explaining *why*.
 - Docs ship in the same release as the feature (in-app Help §s + README).
 - Schema changes only via idempotent `_run_migrations()` DDL.
@@ -193,6 +195,22 @@ VM is the **top backlog item**. Restore: Config → Restore (superadmin).
    loads base MIBs at engine init).
 6. **SNMPv3** — client is v2c-only by config; pysnmp supports v3 if a site
    ever requires auth/priv.
+
+## 9a. Development moved again (2026-11-23)
+
+Development now happens from Claude cloud sessions on the owner's work Claude
+account (GitHub connected as mkeathley2). Differences from the old local setup:
+- The session can `git push` to master but **cannot create releases** — hence
+  `auto-release.yml`.
+- The session **cannot reach the VM**. The owner SSHes in, runs commands and
+  pastes output back; deploy is still the owner running `./update.sh`.
+- The repo dir on the VM is `/root/network-printer-dashboard`; `docker compose`
+  commands must be run from inside it.
+- There is no Docker in the cloud session; v0.0.33 was tested against a local
+  MariaDB 10.11 with `innodb_snapshot_isolation=ON` by running the Flask app
+  directly (schema created by v0.0.32 code first, then upgraded).
+- Prod at the time: poll interval 720 min (12 h); 199 active printers, of which
+  144 are server-polled and 55 are reported by remote agents.
 
 ## 10. State at handoff (2026-08-08)
 

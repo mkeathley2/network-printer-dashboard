@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -176,14 +177,200 @@ def _update_printer_status(printer: Printer, data: PrinterData, db_session: Sess
         # take effect on next poll (don't lock in stale sysDescr values)
         if data.model:
             printer.model = data.model
-        if data.serial_number:
+        if data.serial_number and (
+            not printer.serial_number
+            or _norm_serial(printer.serial_number) == _norm_serial(data.serial_number)
+        ):
+            # A DIFFERENT serial is never written here — see
+            # _resolve_serial_change(), which decides replace vs. move.
             printer.serial_number = data.serial_number
+            # Remember the standard-MIB serial when a vendor module replaced it
+            generic = (getattr(data, "serial_generic", None) or "").strip()
+            if generic and _norm_serial(generic) != _norm_serial(data.serial_number):
+                printer.serial_alt = generic[:128]
         if data.sysname:
             printer.hostname = data.sysname
         if data.vendor != "generic":
             printer.vendor = data.vendor
     else:
         printer.consecutive_failures = min((printer.consecutive_failures or 0) + 1, 30000)
+
+
+# ---------------------------------------------------------------------------
+# Serial-number change handling (server-polled printers only)
+# ---------------------------------------------------------------------------
+# When the device answering at a printer's IP reports a different serial, the
+# physical printer was swapped.  Without this, the new printer silently took
+# over the old record and their toner/page history got mixed together.
+#
+#   * new serial belongs to another server-polled record (active OR removed)
+#       -> that printer MOVED here: its record (and history) follows it to
+#          this IP, and is restored if it was in Removed.
+#   * new serial is unknown
+#       -> a NEW printer: a fresh record is started at this IP.
+#   * either way the record that used to be at this IP goes to Removed with
+#     a note, since that physical printer is no longer answering here.
+#
+# Safety: a change is acted on only after the SAME new serial is seen on two
+# consecutive polls (Printer.pending_serial), so one odd SNMP read can never
+# split a history.  Remote-agent printers are excluded on purpose — many
+# sites share the same private IP ranges and agents manage their own rows.
+
+def _norm_serial(serial) -> str:
+    return (serial or "").strip().upper()
+
+
+def _alt_serial(data: PrinterData):
+    generic = (getattr(data, "serial_generic", None) or "").strip()
+    if generic and _norm_serial(generic) != _norm_serial(data.serial_number):
+        return generic[:128]
+    return None
+
+
+def _append_note(printer: Printer, line: str) -> None:
+    stamp = datetime.utcnow().strftime("%Y-%m-%d")
+    entry = f"[{stamp}] {line}"
+    printer.notes = f"{printer.notes.rstrip()}\n{entry}" if printer.notes else entry
+
+
+def _resolve_serial_change(printer: Printer, data: PrinterData, db_session: Session) -> Printer:
+    """
+    Decide which Printer record this poll result belongs to.  Returns the
+    record to write telemetry to (``printer`` itself in the normal case).
+    """
+    if printer.agent_id is not None or not data.is_online:
+        return printer
+    new_serial = _norm_serial(data.serial_number)
+    old_serial = _norm_serial(printer.serial_number)
+    # Every identifier we know for this record vs. every identifier this poll
+    # reported.  Any overlap = same physical printer.  (Vendor modules replace
+    # the standard-MIB serial with their own; when that enrichment fails for a
+    # poll, only the standard one comes back — still the same printer.)
+    known = {old_serial, _norm_serial(printer.serial_alt)} - {""}
+    reported = {new_serial, _norm_serial(getattr(data, "serial_generic", None))} - {""}
+    if not new_serial or not old_serial or (known & reported):
+        if printer.pending_serial:
+            printer.pending_serial = None      # back to normal — forget the odd read
+        return printer
+
+    # First sighting of a different serial: park it and wait for confirmation.
+    if _norm_serial(printer.pending_serial) != new_serial:
+        printer.pending_serial = data.serial_number.strip()[:128]
+        logger.info(
+            "Printer %s: serial changed %s -> %s (first sighting; will act if the next poll agrees)",
+            printer.ip_address, printer.serial_number, data.serial_number,
+        )
+        return printer
+
+    # Confirmed on two consecutive polls.
+    ip = printer.ip_address
+    old_name = printer.effective_name
+    old_serial_raw = printer.serial_number
+    new_serial_raw = data.serial_number.strip()[:128]
+    printer.pending_serial = None
+
+    others = [
+        o for o in db_session.query(Printer).filter(
+            Printer.agent_id.is_(None), Printer.id != printer.id,
+        ).all()
+        if {_norm_serial(o.serial_number), _norm_serial(o.serial_alt)} & reported
+    ]
+    # Prefer an active match, then the most recently seen.
+    _epoch = datetime(1971, 1, 1)
+    others.sort(key=lambda o: (0 if o.is_active else 1,
+                               -(o.last_seen_at or _epoch).timestamp()))
+
+    # The record that was at this IP leaves the dashboard either way.
+    printer.is_active = False
+    printer.is_online = False
+
+    if others:
+        target = others[0]
+        was_removed = not target.is_active
+        old_ip = target.ip_address
+        _append_note(printer, f"Auto-removed: {ip} now answers as serial {new_serial_raw} "
+                              f"({target.effective_name}, moved here from {old_ip}).")
+        target.ip_address = ip
+        target.is_active = True
+        if printer.location_id is not None:
+            target.location_id = printer.location_id
+        _append_note(target, f"Moved from {old_ip} to {ip} (same serial {new_serial_raw} detected)"
+                             f"{'; restored from Removed' if was_removed else ''}. "
+                             f"Replaced {old_name} (serial {old_serial_raw}).")
+        action, detail = "printer_moved", (
+            f"Serial {new_serial_raw} ({target.effective_name}) moved {old_ip} -> {ip}"
+            f"{' and was restored from Removed' if was_removed else ''}; "
+            f"previous printer at {ip} ({old_name}, serial {old_serial_raw}) moved to Removed")
+    else:
+        target = Printer(
+            ip_address=ip,
+            agent_id=None,
+            snmp_version=printer.snmp_version,
+            snmp_community=printer.snmp_community,
+            snmp_v3_user=printer.snmp_v3_user,
+            snmp_v3_auth_proto=printer.snmp_v3_auth_proto,
+            snmp_v3_auth_key=printer.snmp_v3_auth_key,
+            snmp_v3_priv_proto=printer.snmp_v3_priv_proto,
+            snmp_v3_priv_key=printer.snmp_v3_priv_key,
+            location_id=printer.location_id,
+            group_id=printer.group_id,
+            display_name=printer.display_name,
+            assigned_person=printer.assigned_person,
+            assigned_computer=printer.assigned_computer,
+            phone_ext=printer.phone_ext,
+            serial_number=new_serial_raw,
+            serial_alt=_alt_serial(data),
+            is_active=True,
+            is_online=False,
+            consecutive_failures=0,
+            consecutive_misses=0,
+        )
+        db_session.add(target)
+        _append_note(printer, f"Auto-removed: replaced at {ip} by a new printer "
+                              f"(serial {new_serial_raw}).")
+        _append_note(target, f"New printer detected at {ip}; replaced {old_name} "
+                             f"(serial {old_serial_raw}). Location and assignment copied "
+                             f"from the old record — please verify.")
+        action, detail = "printer_replaced", (
+            f"New printer (serial {new_serial_raw}) detected at {ip}; previous printer "
+            f"{old_name} (serial {old_serial_raw}) moved to Removed and a fresh record started")
+
+    db_session.flush()   # target needs an id before telemetry is written
+    logger.info("Serial change at %s: %s", ip, detail)
+    _audit_buffer.entries.append((action, ip, detail))
+    return target
+
+
+# Audit entries are written only AFTER the poll transaction commits (audit()
+# uses its own session; writing mid-transaction could record a change that
+# then rolled back).
+# Thread-local: the scheduled poll and a manual "Poll Now" can overlap.
+class _AuditBuffer(threading.local):
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, str, str]] = []
+
+
+_audit_buffer = _AuditBuffer()
+
+
+def _flush_audits(committed: bool) -> None:
+    entries, _audit_buffer.entries = _audit_buffer.entries, []
+    if not committed:
+        return
+    try:
+        from app.utils.audit import audit
+        for action, target, detail in entries:
+            audit("system", action, target, detail)
+    except Exception:
+        logger.exception("Could not write serial-change audit entries")
+
+
+def _apply_poll_result(printer: Printer, data: PrinterData, db_session: Session) -> None:
+    """Serial-change resolution + status + telemetry + alerts for one result."""
+    target = _resolve_serial_change(printer, data, db_session)
+    _update_printer_status(target, data, db_session)
+    _write_telemetry(target, data, db_session)
+    _run_alerts(target, data, db_session)
 
 
 def _run_alerts(printer: Printer, data: PrinterData, db_session: Session) -> None:
@@ -203,9 +390,13 @@ def poll_single_printer(printer_id: int, db_session: Session) -> None:
 
     logger.info("Polling printer %s (%s)", printer.ip_address, printer.effective_name)
     data = _probe_printer(printer)
-    _update_printer_status(printer, data, db_session)
-    _write_telemetry(printer, data, db_session)
-    _run_alerts(printer, data, db_session)
+    try:
+        _apply_poll_result(printer, data, db_session)
+        db_session.commit()
+        _flush_audits(True)
+    except Exception:
+        _flush_audits(False)
+        raise
 
 
 # consecutive_failures is a SMALLINT (max 32767) — never let it overflow.
@@ -228,14 +419,16 @@ def _save_poll_result(printer_id: int, data: PrinterData | None,
     printer = db_session.get(Printer, printer_id)
     if not printer or not printer.is_active or printer.agent_id is not None:
         return
+    if data is not None and printer.ip_address != data.ip_address:
+        # The record was re-pointed to another IP during this batch (a moved
+        # printer) — this result was probed at its OLD address. Discard it.
+        return
     if data is None:
         _bump_failures(printer)
     else:
         if detected_snmp_version:
             printer.snmp_version = detected_snmp_version
-        _update_printer_status(printer, data, db_session)
-        _write_telemetry(printer, data, db_session)
-        _run_alerts(printer, data, db_session)
+        _apply_poll_result(printer, data, db_session)
     db_session.commit()
 
 
@@ -295,10 +488,12 @@ def poll_all_printers(db_session: Session) -> None:
         for attempt in (1, 2):
             try:
                 _save_poll_result(pid, data, detected, db_session)
+                _flush_audits(True)
                 saved += 1
                 break
             except Exception:
                 db_session.rollback()
+                _flush_audits(False)
                 if attempt == 2:
                     failed += 1
                     logger.exception("Failed to save poll result for %s", ips[pid])

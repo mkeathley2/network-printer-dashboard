@@ -101,6 +101,7 @@ def create_app(yaml_path: str | None = None) -> Flask:
         logger.info("Database tables verified/created.")
         _seed_admin()
         _seed_superadmin()
+        _seed_offline_ticket_baseline()
         _cleanup_stuck_scans()
 
     logger.info("Application created. Listening on port %d", cfg.app.port)
@@ -156,6 +157,12 @@ def _run_migrations() -> None:
         "ALTER TABLE printers ADD COLUMN supplies_under_contract BOOLEAN NOT NULL DEFAULT 0",
         # --- Konica Minolta vendor (v0.0.28) ---
         "ALTER TABLE printers MODIFY COLUMN vendor ENUM('hp','brother','canon','kyocera','ricoh','konica','generic') NOT NULL DEFAULT 'generic'",
+        # --- v0.0.33: long-offline tickets, serial-change confirm, keep-awake, stale-client ticket ---
+        "ALTER TABLE printers ADD COLUMN offline_ticket_sent BOOLEAN NOT NULL DEFAULT 0",
+        "ALTER TABLE printers ADD COLUMN pending_serial VARCHAR(128) NULL",
+        "ALTER TABLE printers ADD COLUMN serial_alt VARCHAR(128) NULL",
+        "ALTER TABLE remote_agents ADD COLUMN keep_awake BOOLEAN NOT NULL DEFAULT 1",
+        "ALTER TABLE remote_agents ADD COLUMN stale_ticket_sent BOOLEAN NOT NULL DEFAULT 0",
     ]
     with db.engine.connect() as conn:
         for stmt in migrations:
@@ -238,6 +245,33 @@ def _seed_superadmin() -> None:
     db.session.commit()
     if promoted:
         logger.info("Promoted %d existing admin(s) to super-admin (one-time migration)", promoted)
+
+
+def _seed_offline_ticket_baseline() -> None:
+    """
+    One-time, when the long-offline review tickets are first introduced
+    (v0.0.33): record the moment of the upgrade.  The automatic tickets only
+    fire for outages that cross their threshold AFTER this moment, so the
+    upgrade does not produce a burst of tickets for printers/clients that were
+    already long gone.  (See app/alerts/offline_review.py.)
+    """
+    from datetime import datetime
+    from app.models import SiteSetting
+    try:
+        row = db.session.get(SiteSetting, "offline_ticket_baseline_at")
+        if row and row.value:
+            return
+        stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        if row:
+            row.value = stamp
+        else:
+            db.session.add(SiteSetting(key="offline_ticket_baseline_at", value=stamp))
+        db.session.commit()
+        logger.info("Offline-ticket baseline set to %s UTC — only outages that cross "
+                    "their threshold after this point generate automatic tickets.", stamp)
+    except Exception:
+        db.session.rollback()
+        logger.exception("Offline-ticket baseline seeding failed (non-fatal)")
 
 
 def _cleanup_stuck_scans() -> None:

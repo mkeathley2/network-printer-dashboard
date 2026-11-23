@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Offline Printers{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3 gap-2">
+  <a href="{{ url_for('reports.index') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i></a>
+  <h5 class="mb-0"><i class="bi bi-plug me-2"></i>Offline Printers</h5>
+  <span class="badge bg-danger">{{ rows | length }}</span>
+</div>
+
+<p class="text-muted small">
+  Printers that are offline right now, longest first.
+  {% if ticket_days > 0 %}
+    A review ticket is sent automatically once a printer has been offline for
+    <strong>{{ ticket_days }} days</strong> (change this in Config &rarr; Thresholds).
+  {% else %}
+    Automatic review tickets are turned off (Config &rarr; Thresholds).
+  {% endif %}
+</p>
+
+<form method="GET" class="row g-2 mb-3 align-items-end">
+  <div class="col-auto">
+    <label class="form-label small mb-1">Show</label>
+    <select name="min_days" class="form-select form-select-sm" onchange="this.form.submit()">
+      {% for d, label in [(0,'All offline printers'),(1,'Offline 1+ days'),(7,'Offline 7+ days'),(15,'Offline 15+ days'),(30,'Offline 30+ days'),(90,'Offline 90+ days')] %}
+      <option value="{{ d }}" {% if min_days == d %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <a href="{{ url_for('reports.offline', min_days=min_days, format='csv') }}"
+       class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-download me-1"></i>Download CSV
+    </a>
+  </div>
+</form>
+
+<div class="card mb-4">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped table-hover align-middle mb-0">
+      <thead class="table-light">
+        <tr>
+          <th>Printer</th><th>Location</th><th>Monitored By</th>
+          <th>Last Seen</th><th>Days Offline</th><th>Review Ticket</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            <a href="{{ url_for('printers.detail', printer_id=r.printer_id) }}">{{ r.printer_name }}</a>
+            <div class="text-muted small">{{ r.ip_address }}{% if r.model %} &middot; {{ r.model }}{% endif %}</div>
+          </td>
+          <td class="small text-muted">{{ r.location or '—' }}</td>
+          <td class="small">
+            {{ r.source }}
+            {% if r.client_stale %}
+              <span class="badge bg-warning text-dark" title="This remote client has stopped checking in, so there is no current data for its printers">Client not reporting</span>
+            {% endif %}
+          </td>
+          <td class="small text-muted">{{ r.last_seen | localtime if r.last_seen else 'Never' }}</td>
+          <td>
+            {% set d = r.days_offline %}
+            <span class="badge {% if d >= 15 %}bg-danger{% elif d >= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+              {% if d < 1 %}&lt; 1{% else %}{{ '%.0f' | format(d) }}{% endif %}
+            </span>
+          </td>
+          <td class="small">
+            {% if r.ticket_sent %}<span class="text-success"><i class="bi bi-check-circle me-1"></i>Sent</span>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="text-end">
+            {% if helpdesk_configured %}
+            <form method="POST" action="{{ url_for('printers.create_offline_ticket', printer_id=r.printer_id) }}"
+                  onsubmit="return confirm('Send an offline review ticket for {{ r.printer_name }}?')">
+              <input type="hidden" name="return_to" value="report">
+              <button type="submit" class="btn btn-sm btn-outline-warning py-0">
+                <i class="bi bi-ticket me-1"></i>{% if r.ticket_sent %}Send Again{% else %}Create Ticket{% endif %}
+              </button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted py-4">No printers match — nothing is offline{% if min_days %} that long{% endif %}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h6 class="mb-2"><i class="bi bi-hdd-network me-2"></i>Remote Clients Not Checking In
+  <span class="badge bg-secondary">{{ stale_clients | length }}</span></h6>
+<p class="text-muted small">
+  When a remote client stops checking in, its printers are not really offline — there is just no data from that site.
+  {% if client_ticket_days > 0 %}A ticket is sent after <strong>{{ client_ticket_days }} days</strong> of silence.{% endif %}
+</p>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-sm table-striped align-middle mb-0">
+      <thead class="table-light">
+        <tr><th>Client</th><th>Location</th><th>Last Check-In</th><th>Days Silent</th><th>Printers</th><th>Ticket</th></tr>
+      </thead>
+      <tbody>
+        {% for c in stale_clients %}
+        <tr>
+          <td>{{ c.name }}</td>
+          <td class="small text-muted">{{ c.location or '—' }}</td>
+          <td class="small text-muted">{{ c.last_checkin | localtime }}</td>
+          <td><span class="badge {% if c.days_silent >= 15 %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+            {% if c.days_silent < 1 %}&lt; 1{% else %}{{ '%.0f' | format(c.days_silent) }}{% endif %}</span></td>
+          <td>{{ c.printer_count }}</td>
+          <td class="small">{% if c.ticket_sent %}<span class="text-success"><i class="bi bi-check-circle me-1"></i>Sent</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted py-4">All remote clients are checking in.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

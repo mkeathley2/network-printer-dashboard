@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import config
 from app.models import DiscoveryScan, DiscoveryResult, Printer
+from app.utils.printer_lookup import find_local_printer_by_ip
 from app.snmp import oids
 from app.snmp.client import _build_auth, _coerce_value
 
@@ -172,7 +173,7 @@ def run_cidr_discovery(cidr: str, community: str, scan_id: int, db_session: Sess
     for result in responsive:
         ip = result["ip"]
         found += 1
-        existing = db_session.query(Printer).filter_by(ip_address=ip).first()
+        existing = find_local_printer_by_ip(db_session, ip)
         already_known = existing is not None
 
         # Only add active printers as "already known"

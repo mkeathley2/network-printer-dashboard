@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Network Printer Dashboard — Remote Agent
-Version: v0.0.32
+Version: v0.0.33
 
 Standalone script deployed at remote sites. Scans local subnets via SNMP,
 collects toner/status data, and reports to the central dashboard.
@@ -91,12 +91,62 @@ _EXE_RELEASE_URL = (
     "/releases/latest/download/printer_agent.exe"
 )
 
-# File handler (appended once config dir is known)
-_file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
-_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-logger.addHandler(_file_handler)
+# ---------------------------------------------------------------------------
+# Log size cap
+# ---------------------------------------------------------------------------
+# agent.log used to grow forever (plain FileHandler, no rotation) and filled
+# the disk on at least one station PC.  It is now capped: whenever the file is
+# larger than _LOG_MAX_BYTES it is trimmed IN PLACE down to its newest
+# _LOG_KEEP_BYTES.  The trim runs at startup (which also cleans up oversized
+# logs left by older agent versions) and after every scan cycle.
+#
+# In-place (read tail -> rewrite -> truncate) rather than rename-rotation on
+# purpose: on the Pi, systemd also appends stdout to this same file, and an
+# append-mode writer keeps working correctly across an in-place truncate.
+_LOG_MAX_BYTES = 2 * 1024 * 1024    # trim when the log exceeds 2 MB ...
+_LOG_KEEP_BYTES = 1 * 1024 * 1024   # ... keeping the newest 1 MB
 
-AGENT_VERSION = "v0.0.32"
+_file_handler: Optional[logging.Handler] = None
+
+
+def _trim_log_file() -> None:
+    """Trim agent.log to its newest _LOG_KEEP_BYTES if it exceeds the cap. Never raises."""
+    try:
+        if not _LOG_PATH.exists() or _LOG_PATH.stat().st_size <= _LOG_MAX_BYTES:
+            return
+        old_size = _LOG_PATH.stat().st_size
+        if _file_handler is not None:
+            _file_handler.acquire()
+        try:
+            if _file_handler is not None:
+                _file_handler.close()          # FileHandler reopens on next emit
+            with open(_LOG_PATH, "r+b") as f:
+                f.seek(-_LOG_KEEP_BYTES, os.SEEK_END)
+                tail = f.read()
+                nl = tail.find(b"\n")           # start on a whole line
+                if 0 <= nl < len(tail) - 1:
+                    tail = tail[nl + 1:]
+                f.seek(0)
+                f.write(tail)
+                f.truncate()
+        finally:
+            if _file_handler is not None:
+                _file_handler.release()
+        logger.info("Trimmed agent.log from %.1f MB to %.1f MB",
+                    old_size / 1048576.0, len(tail) / 1048576.0)
+    except Exception:
+        pass  # logging must never take the agent down
+
+
+_trim_log_file()   # clean up an oversized log BEFORE opening it for append
+try:
+    _file_handler = logging.FileHandler(_LOG_PATH, encoding="utf-8")
+    _file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logger.addHandler(_file_handler)
+except Exception:
+    _file_handler = None   # unwritable log dir must not stop the agent
+
+AGENT_VERSION = "v0.0.33"
 
 # ---------------------------------------------------------------------------
 # OIDs
@@ -738,6 +788,24 @@ def checkin(printers: list[dict], errors: list[dict], cfg: dict) -> Optional[str
                 cfg[k] = v
             save_config(cfg)
             logger.info("Config updated from dashboard: %s", data["config"])
+        # Standing settings: the dashboard sends its current values for this
+        # agent on EVERY check-in (v0.0.33+).  Unlike the one-shot "config"
+        # command, this cannot be lost when another command (e.g. "update")
+        # occupies the command slot.  Only whitelisted keys, only on change.
+        settings = data.get("settings")
+        if isinstance(settings, dict):
+            changed = {}
+            interval = settings.get("scan_interval_minutes")
+            if isinstance(interval, int) and 1 <= interval <= 10080 \
+                    and cfg.get("scan_interval_minutes") != interval:
+                cfg["scan_interval_minutes"] = changed["scan_interval_minutes"] = interval
+            if "keep_awake" in settings:
+                ka = _as_bool(settings.get("keep_awake"))
+                if _as_bool(cfg.get("keep_awake")) != ka or "keep_awake" not in cfg:
+                    cfg["keep_awake"] = changed["keep_awake"] = ka
+            if changed:
+                save_config(cfg)
+                logger.info("Settings synced from dashboard: %s", changed)
         return command
     except requests.exceptions.ConnectionError:
         logger.warning("Could not connect to dashboard at %s — will retry next cycle", url)
@@ -904,6 +972,48 @@ def uninstall() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Keep-awake (Windows)
+# ---------------------------------------------------------------------------
+# Station PCs that idle-sleep stop checking in.  While keep-awake is on, the
+# agent asks Windows not to idle-sleep for as long as this process runs
+# (SetThreadExecutionState).  The display may still turn off; a lid close,
+# the power button, or a shutdown still work normally.  Controlled per agent
+# from the dashboard (Config -> Remote Agents); default ON.  No-op on Linux/Pi.
+_ES_CONTINUOUS = 0x80000000
+_ES_SYSTEM_REQUIRED = 0x00000001
+_keep_awake_state: Optional[bool] = None   # last state applied (None = never)
+
+
+def apply_keep_awake(enabled: bool) -> None:
+    """Apply the keep-awake setting. Logs only when the state changes. Never raises."""
+    global _keep_awake_state
+    if platform.system() != "Windows":
+        return
+    enabled = bool(enabled)
+    if enabled == _keep_awake_state:
+        return
+    try:
+        import ctypes
+        flags = _ES_CONTINUOUS | (_ES_SYSTEM_REQUIRED if enabled else 0)
+        ctypes.windll.kernel32.SetThreadExecutionState(ctypes.c_uint(flags))
+        logger.info("Keep-awake %s", "ON - Windows will not idle-sleep while the agent runs"
+                    if enabled else "OFF - Windows may sleep normally")
+    except Exception as exc:
+        logger.warning("Keep-awake could not be applied: %s", exc)
+    # Record the state even on failure so a PC where it cannot be applied
+    # logs the problem once, not on every scan cycle.
+    _keep_awake_state = enabled
+
+
+def _as_bool(val, default: bool = True) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, str):
+        return val.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(val)
+
+
+# ---------------------------------------------------------------------------
 # Config file
 # ---------------------------------------------------------------------------
 
@@ -1061,10 +1171,14 @@ def main_loop(cfg: dict) -> None:
     logger.info("Agent starting. Version %s. Subnets: %s",
                 AGENT_VERSION, cfg.get("subnets"))
     while True:
+        apply_keep_awake(_as_bool(cfg.get("keep_awake")))
         try:
             run_once(cfg)
         except Exception:
             logger.exception("Unexpected error in scan cycle")
+        # A check-in may have just changed the setting — apply before sleeping
+        apply_keep_awake(_as_bool(cfg.get("keep_awake")))
+        _trim_log_file()
         interval = cfg.get("scan_interval_minutes", 60) * 60
         logger.info("Sleeping %d minutes until next scan…", cfg.get("scan_interval_minutes", 60))
         time.sleep(interval)

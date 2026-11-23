@@ -220,8 +220,56 @@ def index():
         .all()
     )
 
+    # --- v0.0.33: offline review tickets, bulk agent interval, daily auto-scan ---
+    from app.alerts import offline_review
+    from app.models import DiscoveredDevice
+    from app.scanner import auto_scan
+    offline_review_settings = {
+        "printer_days": offline_review.long_offline_days(),
+        "agent_days": offline_review.stale_agent_days(),
+        "assignee": offline_review.stale_agent_assignee(),
+    }
+    auto_scan_settings = {
+        "enabled": auto_scan.is_enabled(),
+        "hour": auto_scan.scan_hour(),
+        "extra_subnets": _get_setting("auto_scan_extra_subnets", ""),
+        "last_run": _get_setting("auto_scan_last_run", ""),
+        "last_summary": _get_setting("auto_scan_last_summary", ""),
+        "subnets": auto_scan.get_scan_subnets(db.session) if tab in ("thresholds", "discovered") else [],
+    }
+    discovered_pending_count = (
+        db.session.query(DiscoveredDevice).filter_by(status="pending").count()
+    )
+    discovered_pending, discovered_ignored, removed_by_ip = [], [], {}
+    if tab == "discovered":
+        discovered_pending = (
+            db.session.query(DiscoveredDevice).filter_by(status="pending")
+            .order_by(DiscoveredDevice.subnet, DiscoveredDevice.ip_address).all()
+        )
+        discovered_ignored = (
+            db.session.query(DiscoveredDevice).filter_by(status="ignored")
+            .order_by(DiscoveredDevice.ip_address).all()
+        )
+        # Flag pending IPs that match a previously removed server-polled printer
+        for rp in db.session.query(Printer).filter(
+            Printer.is_active == False, Printer.agent_id.is_(None)  # noqa: E712
+        ).all():
+            removed_by_ip.setdefault(rp.ip_address, rp)
+    agent_interval_summary = {}
+    if tab == "thresholds":
+        for a in agents:
+            agent_interval_summary[a.scan_interval_minutes] = (
+                agent_interval_summary.get(a.scan_interval_minutes, 0) + 1)
+
     return render_template(
         "config/index.html",
+        offline_review_settings=offline_review_settings,
+        auto_scan_settings=auto_scan_settings,
+        discovered_pending_count=discovered_pending_count,
+        discovered_pending=discovered_pending,
+        discovered_ignored=discovered_ignored,
+        removed_by_ip=removed_by_ip,
+        agent_interval_summary=agent_interval_summary,
         smtp=smtp,
         users=users,
         locations=locations,
@@ -613,6 +661,193 @@ def save_poll_interval():
           f"Set poll interval to {minutes} minutes")
     flash(f"Poll interval updated to every {minutes} minutes.", "success")
     return redirect(url_for("config.index", tab="thresholds"))
+
+
+# ---------------------------------------------------------------------------
+# Offline review tickets (long-offline printers + stale remote clients)
+# ---------------------------------------------------------------------------
+@bp.route("/offline-review-settings", methods=["POST"])
+@admin_required
+def save_offline_review_settings():
+    try:
+        printer_days = int(request.form.get("long_offline_ticket_days", 15))
+        agent_days = int(request.form.get("stale_agent_ticket_days", 15))
+    except (ValueError, TypeError):
+        flash("Days must be whole numbers.", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    if not (0 <= printer_days <= 365 and 0 <= agent_days <= 365):
+        flash("Days must be between 0 and 365 (0 turns that ticket off).", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    assignee = request.form.get("stale_agent_ticket_assignee", "").strip()[:100]
+    _set_setting("long_offline_ticket_days", str(printer_days))
+    _set_setting("stale_agent_ticket_days", str(agent_days))
+    _set_setting("stale_agent_ticket_assignee", assignee)
+    db.session.commit()
+    audit(current_user.username, "config_offline_review", "site",
+          f"Offline review tickets: printers after {printer_days}d, "
+          f"clients after {agent_days}d, assign client tickets to '{assignee or '(nobody)'}'")
+    flash("Offline review ticket settings saved.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
+
+
+# ---------------------------------------------------------------------------
+# Remote clients: set the check-in interval for ALL of them at once
+# ---------------------------------------------------------------------------
+@bp.route("/agents/set-interval-all", methods=["POST"])
+@admin_required
+def agent_set_interval_all():
+    import json
+    try:
+        minutes = int(request.form.get("scan_interval_minutes", 60))
+    except (ValueError, TypeError):
+        flash("Invalid interval — must be a whole number of minutes.", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    if not (5 <= minutes <= 1440):
+        flash("Interval must be between 5 and 1440 minutes (24 hours).", "danger")
+        return redirect(url_for("config.index", tab="thresholds"))
+    agents = db.session.query(RemoteAgent).all()
+    for agent in agents:
+        agent.scan_interval_minutes = minutes
+        # Agents on v0.0.33+ read the interval from every check-in response.
+        # Older agents only understand the one-shot "config" command, so queue
+        # that too when their command slot is free.
+        if agent.pending_command is None:
+            agent.pending_command = "config"
+            agent.pending_command_config = json.dumps({"scan_interval_minutes": minutes})
+    db.session.commit()
+    audit(current_user.username, "agent_interval_all", "all",
+          f"Set check-in interval to {minutes} min for all {len(agents)} remote client(s)")
+    flash(f"Check-in interval set to {minutes} min for all {len(agents)} remote client(s). "
+          f"Each one switches at its next check-in.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
+
+
+@bp.route("/agents/<int:agent_id>/set-keep-awake", methods=["POST"])
+@admin_required
+def agent_set_keep_awake(agent_id: int):
+    agent = db.get_or_404(RemoteAgent, agent_id)
+    enabled = request.form.get("keep_awake") == "1"
+    agent.keep_awake = enabled
+    db.session.commit()
+    audit(current_user.username, "agent_keep_awake", agent.name,
+          f"Keep-awake {'enabled' if enabled else 'disabled'} for agent '{agent.name}'")
+    flash(f"Keep-awake turned {'ON' if enabled else 'OFF'} for {agent.name} — "
+          f"applies at its next check-in.", "success")
+    return redirect(url_for("config.index", tab="agents"))
+
+
+# ---------------------------------------------------------------------------
+# Daily auto-scan settings + the approval queue ("Discovered" tab)
+# ---------------------------------------------------------------------------
+@bp.route("/auto-scan-settings", methods=["POST"])
+@admin_required
+def save_auto_scan_settings():
+    from app.scanner import auto_scan
+    enabled = "1" if request.form.get("auto_scan_enabled") else "0"
+    try:
+        hour = int(request.form.get("auto_scan_hour", auto_scan.AUTO_SCAN_HOUR_DEFAULT))
+    except (ValueError, TypeError):
+        hour = auto_scan.AUTO_SCAN_HOUR_DEFAULT
+    hour = min(23, max(0, hour))
+    valid, rejected = auto_scan.parse_extra_subnets(request.form.get("auto_scan_extra_subnets", ""))
+    _set_setting("auto_scan_enabled", enabled)
+    _set_setting("auto_scan_hour", str(hour))
+    _set_setting("auto_scan_extra_subnets", ", ".join(valid))
+    db.session.commit()
+    auto_scan.reschedule()
+    audit(current_user.username, "config_auto_scan", "site",
+          f"Daily auto-scan {'enabled' if enabled == '1' else 'disabled'}, hour={hour}, "
+          f"extra subnets: {', '.join(valid) or '(none)'}")
+    if rejected:
+        flash("Ignored invalid or too-large subnet(s): " + ", ".join(rejected) +
+              ". Use CIDR like 10.0.11.0/24 (nothing larger than a /20).", "warning")
+    flash("Daily scan settings saved.", "success")
+    return redirect(url_for("config.index", tab="thresholds"))
+
+
+@bp.route("/auto-scan/run", methods=["POST"])
+@admin_required
+def run_auto_scan_now():
+    import threading
+    from flask import current_app
+    flask_app = current_app._get_current_object()
+
+    def _run():
+        with flask_app.app_context():
+            try:
+                from app.core.database import get_db
+                from app.scanner import auto_scan
+                with get_db() as sess:
+                    auto_scan.run_auto_scan(sess)
+            except Exception:
+                logger.exception("Manual auto-scan run failed")
+
+    threading.Thread(target=_run, daemon=True).start()
+    audit(current_user.username, "auto_scan_run", "site", "Started the network scan manually")
+    flash("Scan started. It usually takes a few minutes — refresh this page to see new devices.", "info")
+    return redirect(url_for("config.index", tab="discovered"))
+
+
+@bp.route("/discovered/decide", methods=["POST"])
+@admin_required
+def discovered_decide():
+    from datetime import datetime
+    from app.models import DiscoveredDevice
+    action = request.form.get("action", "")
+    ids = [int(x) for x in request.form.getlist("device_ids") if str(x).isdigit()]
+    if action not in ("approve", "ignore") or not ids:
+        flash("Select at least one device first.", "warning")
+        return redirect(url_for("config.index", tab="discovered"))
+    devices = (db.session.query(DiscoveredDevice)
+               .filter(DiscoveredDevice.id.in_(ids), DiscoveredDevice.status == "pending").all())
+    if not devices:
+        flash("Those devices are no longer waiting for review.", "info")
+        return redirect(url_for("config.index", tab="discovered"))
+
+    if action == "ignore":
+        for d in devices:
+            d.status = "ignored"
+            d.decided_by = current_user.username
+            d.decided_at = datetime.utcnow()
+        ips = ", ".join(d.ip_address for d in devices)
+        db.session.commit()
+        audit(current_user.username, "discovered_ignore", ips[:250],
+              f"Ignored {len(devices)} discovered device(s): {ips}")
+        flash(f"Ignored {len(devices)} device(s). They will not be suggested again.", "success")
+        return redirect(url_for("config.index", tab="discovered"))
+
+    # approve
+    from app.web.routes.api import _add_discovery_results, _poll_printers_async
+    loc_raw = request.form.get("location_id", "")
+    location_id = int(loc_raw) if loc_raw.isdigit() else None
+    ips = ", ".join(d.ip_address for d in devices)
+    added, skipped, printer_ids = _add_discovery_results(devices, location_id)
+    for d in devices:
+        db.session.delete(d)
+    db.session.commit()
+    _poll_printers_async(printer_ids)
+    audit(current_user.username, "discovered_approve", ips[:250],
+          f"Approved {added} discovered device(s) as printers: {ips}")
+    msg = f"Added {added} printer(s) to the dashboard — polling them now."
+    if skipped:
+        msg += f" {skipped} were already on the dashboard."
+    flash(msg, "success")
+    return redirect(url_for("config.index", tab="discovered"))
+
+
+@bp.route("/discovered/<int:device_id>/unignore", methods=["POST"])
+@admin_required
+def discovered_unignore(device_id: int):
+    from app.models import DiscoveredDevice
+    dev = db.get_or_404(DiscoveredDevice, device_id)
+    ip = dev.ip_address
+    dev.status = "pending"
+    dev.decided_by = None
+    dev.decided_at = None
+    db.session.commit()
+    audit(current_user.username, "discovered_unignore", ip, f"Un-ignored discovered device {ip}")
+    flash(f"{ip} moved back to the review list.", "success")
+    return redirect(url_for("config.index", tab="discovered"))
 
 
 # ---------------------------------------------------------------------------

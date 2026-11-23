@@ -149,6 +149,7 @@ def probe(ip: str, snmp_params: dict, timeout: int = 3, retries: int = 2) -> Pri
         data.model = _extract_model_from_descr(sysdescr_val)
     if serial_val:
         data.serial_number = str(serial_val).strip() or None
+        data.serial_generic = data.serial_number
     data.status_raw = str(status_val) if status_val is not None else None
     data.error_state_raw = str(error_val) if error_val is not None else None
 

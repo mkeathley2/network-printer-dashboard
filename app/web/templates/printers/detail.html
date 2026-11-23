@@ -22,6 +22,15 @@
   {% endif %}
   <div class="ms-auto d-flex gap-2 flex-wrap">
     {% if helpdesk_configured %}
+    {% if not printer.is_online and printer.is_active %}
+    <form method="POST" action="{{ url_for('printers.create_offline_ticket', printer_id=printer.id) }}"
+          onsubmit="return confirm('Send a helpdesk ticket asking someone to review this offline printer?')">
+      <button type="submit" class="btn btn-sm btn-danger"
+              title="One click: sends a ticket saying this printer is offline and asking whether it was replaced or removed">
+        <i class="bi bi-plug me-1"></i>Offline Ticket{% if printer.offline_ticket_sent %} (sent){% endif %}
+      </button>
+    </form>
+    {% endif %}
     <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#ticketModal">
       <i class="bi bi-ticket me-1"></i>Create Ticket
     </button>
@@ -124,7 +133,7 @@
         </table>
         {% if printer.notes %}
           <hr class="my-2">
-          <p class="small text-muted mb-0">{{ printer.notes }}</p>
+          <p class="small text-muted mb-0" style="white-space:pre-wrap;">{{ printer.notes }}</p>
         {% endif %}
       </div>
     </div>

@@ -328,8 +328,12 @@ def send_test_email() -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 # Helpdesk ticket email
 # ---------------------------------------------------------------------------
-def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str) -> tuple[bool, str]:
-    """Send a helpdesk ticket email for the given printer."""
+def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str,
+                         subject: Optional[str] = None) -> tuple[bool, str]:
+    """Send a helpdesk ticket email for the given printer.
+
+    ``subject`` overrides the default "[Printer Ticket] name (ip)" subject line.
+    """
     try:
         from app.core.database import db
         from app.models import SiteSetting
@@ -379,7 +383,7 @@ def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str) -> tu
     note_section = f"\nNote from {sent_by}:\n{note}\n" if note.strip() else ""
     note_html = f"""
     <h3>Note from {sent_by}:</h3>
-    <p style="background:#f8f9fa;padding:10px;border-left:4px solid #3498db;">{note}</p>
+    <p style="background:#f8f9fa;padding:10px;border-left:4px solid #3498db;white-space:pre-wrap;">{note}</p>
     """ if note.strip() else ""
 
     # Optional dashboard links
@@ -407,7 +411,8 @@ def send_helpdesk_ticket(printer, supplies: list, note: str, sent_by: str) -> tu
         dash_links_text = "\n" + "\n".join(parts_text) + "\n"
         dash_links_html = "\n".join(parts_html)
 
-    subject = f"[Printer Ticket] {printer_name} ({printer.ip_address})"
+    if not subject:
+        subject = f"[Printer Ticket] {printer_name} ({printer.ip_address})"
 
     body_text = f"""\
 Printer Helpdesk Ticket

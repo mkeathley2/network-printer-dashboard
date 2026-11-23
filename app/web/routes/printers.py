@@ -6,6 +6,7 @@ from flask_login import current_user, login_required
 from app.core.config import config
 from app.core.database import db
 from app.models import Printer, PrinterImportData, SiteSetting, SupplySnapshot, TelemetrySnapshot
+from app.utils.printer_lookup import find_local_printer_by_ip
 from app.models.alert import AlertEvent
 from app.models.location import Location
 from app.utils.audit import audit
@@ -158,7 +159,7 @@ def add():
             flash("IP address is required.", "danger")
             return render_template("printers/add.html", locations=locations)
 
-        existing = db.session.query(Printer).filter_by(ip_address=ip).first()
+        existing = find_local_printer_by_ip(db.session, ip)
         if existing and existing.is_active:
             flash(f"A printer with IP {ip} is already on the dashboard.", "warning")
             return redirect(url_for("printers.detail", printer_id=existing.id))
@@ -411,3 +412,29 @@ def create_ticket(printer_id: int):
           success=ok)
     flash(msg, "success" if ok else "danger")
     return redirect(url_for("printers.detail", printer_id=printer_id))
+
+
+@bp.route("/<int:printer_id>/offline-ticket", methods=["POST"])
+@login_required
+def create_offline_ticket(printer_id: int):
+    """One-click "this printer is offline — please review" helpdesk ticket."""
+    from app.alerts.offline_review import mark_offline_ticket_sent, send_offline_review_ticket
+    printer = db.get_or_404(Printer, printer_id)
+    back = request.form.get("return_to")
+    dest = (url_for("reports.offline") if back == "report"
+            else url_for("printers.detail", printer_id=printer_id))
+    if printer.is_online:
+        flash("This printer is online — no offline ticket sent.", "warning")
+        return redirect(dest)
+    name, ip = printer.effective_name, printer.ip_address
+    ok, msg = send_offline_review_ticket(printer, db.session, current_user.username, automatic=False)
+    if ok:
+        # Counts as the ticket for this outage, so the automatic one won't repeat it
+        try:
+            mark_offline_ticket_sent(printer_id, db.session)
+        except Exception:
+            pass
+    audit(current_user.username, "offline_ticket", ip,
+          f"Offline ticket {'sent' if ok else 'failed'} for {name}: {msg}", success=ok)
+    flash(f"Offline ticket sent for {name}." if ok else msg, "success" if ok else "danger")
+    return redirect(dest)

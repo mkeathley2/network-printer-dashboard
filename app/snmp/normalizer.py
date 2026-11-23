@@ -99,6 +99,10 @@ class PrinterData:
     vendor: str = "generic"
     model: Optional[str] = None
     serial_number: Optional[str] = None
+    # Serial as reported by the standard Printer-MIB, before any vendor module
+    # replaced serial_number with its own (Kyocera/Ricoh do).  Kept so a poll
+    # where vendor enrichment failed is not mistaken for a different printer.
+    serial_generic: Optional[str] = None
     sysname: Optional[str] = None
     uptime_seconds: Optional[int] = None
     page_count: Optional[int] = None

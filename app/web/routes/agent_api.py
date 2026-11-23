@@ -157,6 +157,13 @@ def checkin():
         resp["latest_version"] = get_current_version()
     except Exception:
         pass
+    # Standing settings, sent on every check-in (agents v0.0.33+ apply them;
+    # older agents ignore the key).  Unlike the one-shot "config" command this
+    # cannot be lost when another command occupies the single command slot.
+    resp["settings"] = {
+        "scan_interval_minutes": int(agent.scan_interval_minutes or 60),
+        "keep_awake": bool(agent.keep_awake) if agent.keep_awake is not None else True,
+    }
     if cmd == "update":
         # Keep "version" key for backward compatibility with older agents
         resp["version"] = resp.get("latest_version", "unknown")

@@ -63,3 +63,31 @@ class DiscoveryResult(Base):
 
     def __repr__(self) -> str:
         return f"<DiscoveryResult {self.ip_address} responsive={self.snmp_responsive}>"
+
+
+class DiscoveredDevice(Base):
+    """
+    Approval queue + ignore list for the daily automatic network scan (v0.0.33).
+
+    One row per IP the auto-scan found that is not an active server-polled
+    printer.  status = 'pending'  -> waiting for an admin to Approve or Ignore
+             status = 'ignored'  -> remembered as "not a printer / not wanted";
+                                    never shown as pending again unless un-ignored
+    Approving creates (or restores) the Printer and deletes the row.
+    """
+    __tablename__ = "discovered_devices"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ip_address: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
+    hostname: Mapped[Optional[str]] = mapped_column(String(255))
+    vendor_detected: Mapped[Optional[str]] = mapped_column(String(64))
+    model_detected: Mapped[Optional[str]] = mapped_column(String(255))
+    subnet: Mapped[Optional[str]] = mapped_column(String(50))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    decided_by: Mapped[Optional[str]] = mapped_column(String(64))
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    def __repr__(self) -> str:
+        return f"<DiscoveredDevice {self.ip_address} {self.status}>"

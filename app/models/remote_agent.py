@@ -53,6 +53,14 @@ class RemoteAgent(Base):
     # Reset to False when agent checks in again.
     stale_alert_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Keep-awake (v0.0.33): ask Windows not to idle-sleep while the agent runs.
+    # Sent to the agent in every check-in response.  Default ON.
+    keep_awake: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # Dedup flag for the "client has not checked in for N days" helpdesk ticket.
+    # Reset automatically when the agent checks in again.
+    stale_ticket_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # JSON list of the most recent per-IP scan errors reported by the agent
     last_errors: Mapped[Optional[str]] = mapped_column(Text)
 

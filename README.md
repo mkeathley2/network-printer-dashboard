@@ -51,13 +51,14 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - A **Config → Duplicates** tab (admin only) groups active printers that share a serial number — usually the same physical device added twice (locally + via an agent, or re-discovered after a DHCP change); a red badge shows how many duplicate groups exist
 - Each group shows name / IP / model / location / source side-by-side, badges the most-recently-seen row, and lets you remove the extra in one click
 
-### Reports (all six available to every signed-in user, with CSV export)
+### Reports (all seven available to every signed-in user, with CSV export)
 1. **Print Volume** — pages printed per printer in a date range, grouped by printer/person/location
 2. **Page Count Over Time** — multi-line chart of cumulative pages over time
 3. **Toner Cost** — every replacement event with the cost you entered, plus a **Cartridge** column showing which model was swapped (e.g. "Black Cartridge HP 87X") so you can track prices per SKU; totals by printer and color
 4. **Cost Per Page** — total toner spend ÷ pages printed (printer efficiency metric)
 5. **Consumption Rate** — % per day depletion via linear regression, with projected days remaining
 6. **Reliability** — offline event count per printer
+7. **Offline Printers** — everything offline right now and for how many days, plus remote clients that have stopped checking in; one-click review ticket per row
 
 ### Alerts & Predictive Maintenance
 - Email alerts on toner low (warning), toner critical, toner replaced, drum events, and printer offline
@@ -70,6 +71,13 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - One helpdesk ticket per supply lifecycle (deduped — no spam)
 - "Resend Alerts" button on each printer to re-fire active alerts after fixing email config
 - Every alert email and helpdesk ticket now includes a **"View Printer in Dashboard"** link when `public_url` is configured (under Config → Remote Agents)
+
+### Long-Offline Review Tickets
+- One helpdesk ticket when a printer has been offline for **15 days** (adjustable, 0 = off) asking whether it was replaced, moved or removed — independent of the (often disabled) offline alert email
+- Names a *possible* replacement when a newer printer has appeared at the same site
+- One ticket per outage; re-arms when the printer comes back. Outages that crossed the limit before the feature was installed never ticket (no burst on upgrade)
+- Skipped for printers behind a remote agent that is itself not reporting (the agent gets its own ticket)
+- **Offline Ticket** button on any offline printer's page and on every row of the Offline Printers report
 
 ### Scheduled Report Emails
 - Schedule any of the 5 tabular reports (Print Volume, Toner Cost, Cost Per Page, Consumption Rate, Reliability) to be emailed automatically
@@ -87,6 +95,8 @@ Polls your printers over SNMP and gives you a single-pane view of every device o
 - **Multi-select add** — tick the specific printers you want (or select-all), choose a **Location** from the dropdown, and click **Add Selected**; or **Add All New** at once, or **Add One** per row
 - Newly-added printers are auto-polled in the background and any matching spreadsheet import data is applied
 - Recent scans are listed for quick re-scan or removal
+- **Daily automatic scan** of every subnet the server polls directly (each /24 with a printer, plus any extra subnets you list). New devices land in an approval queue (**Config → Discovered**) — nothing is added automatically. **Approve** the printers, **Ignore** the rest (remembered; can be un-ignored)
+- **Replaced-printer detection**: when a different serial number answers at a server-polled printer's IP on two polls in a row, the dashboard starts a fresh record (or moves the matching known printer's record there, restoring it from Removed if needed) and sends the old one to Removed with a note — histories are never mixed
 
 ### Remote Agents
 For monitoring printers at sites the dashboard server can't reach directly (separate networks, branch offices, etc.):
@@ -99,7 +109,10 @@ For monitoring printers at sites the dashboard server can't reach directly (sepa
 - **Self-cleaning temp**: on startup the Windows agent sweeps leftover PyInstaller `_MEI` extraction folders from `C:\Windows\Temp`, and it contains errors in-process instead of exiting — so a crash can't turn into a restart loop that fills the system drive (v0.0.30)
 - **Per-agent printer count** on the agents table — spot agents that found nothing and delete them
 - Subnet, scan interval, and location editable from the dashboard
-- Stale-detection alerts when an agent stops checking in
+- Stale-detection alerts when an agent stops checking in, plus a **helpdesk ticket after 15 days of silence** (adjustable) asking for it to be assigned to a named person
+- **Keep-awake** (Windows, on by default, switchable per agent): the agent asks Windows not to idle-sleep so station PCs keep checking in
+- **Set the check-in interval for all agents at once** (Config → Thresholds); per-agent values still supported. Interval and keep-awake travel in every check-in reply, so they can't be lost behind another queued command
+- **Capped log**: `agent.log` is trimmed to its newest 1 MB whenever it passes 2 MB; oversized logs from older versions are trimmed on first start
 - Agents that have never checked in can be deleted directly from the dashboard (no need to wait for a remote uninstall ACK that will never come)
 - Tailscale Funnel works great as the public HTTPS endpoint (free, no domain required)
 

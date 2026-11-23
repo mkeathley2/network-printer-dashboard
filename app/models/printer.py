@@ -106,6 +106,21 @@ class Printer(Base):
     # Low-toner alerts and other tickets are unaffected.
     supplies_under_contract: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Long-offline review ticket dedup (v0.0.33): True once the "offline for N
+    # days — please review" helpdesk ticket has been sent for the current
+    # outage.  Reset automatically when the printer is seen online again.
+    offline_ticket_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # Serial-change confirmation (v0.0.33, server-polled printers only): when a
+    # poll returns a serial different from serial_number, it is parked here and
+    # only acted on if the NEXT poll returns the same new serial — a single
+    # odd SNMP read must never split a printer's history.
+    pending_serial: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # The standard-MIB serial last seen for this printer when it differs from
+    # serial_number (some vendors' enrichment replaces it).  Either value
+    # identifies the same physical printer.
+    serial_alt: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+
     telemetry: Mapped[List["TelemetrySnapshot"]] = relationship(  # type: ignore[name-defined]
         "TelemetrySnapshot", back_populates="printer", cascade="all, delete-orphan"
     )

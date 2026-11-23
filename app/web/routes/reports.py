@@ -511,6 +511,44 @@ def reliability():
     return render_template("reports/reliability.html", rows=rows, days=days)
 
 
+# ---------------------------------------------------------------------------
+# Report 7: Offline Printers (how long each has been offline)
+# ---------------------------------------------------------------------------
+
+@bp.route("/offline")
+@login_required
+def offline():
+    fmt = request.args.get("format", "html")
+    try:
+        min_days = max(0, int(request.args.get("min_days", "0")))
+    except (TypeError, ValueError):
+        min_days = 0
+    rows = [r for r in fetch_offline() if r["days_offline"] >= min_days]
+
+    if fmt == "csv":
+        report = next(r for r in REPORT_REGISTRY if r["key"] == "offline")
+        si = io.StringIO()
+        writer = csv.writer(si)
+        writer.writerow(report["csv_header"])
+        for r in rows:
+            writer.writerow(report["csv_row"](r))
+        return Response(si.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition": "attachment;filename=offline_printers.csv"})
+
+    from app.alerts import offline_review
+    from app.models import SiteSetting
+    helpdesk_row = db.session.get(SiteSetting, "helpdesk_email")
+    return render_template(
+        "reports/offline.html",
+        rows=rows,
+        min_days=min_days,
+        stale_clients=fetch_stale_clients(),
+        ticket_days=offline_review.long_offline_days(),
+        client_ticket_days=offline_review.stale_agent_days(),
+        helpdesk_configured=bool(helpdesk_row and helpdesk_row.value),
+    )
+
+
 # =============================================================================
 # Reusable data-fetching helpers
 # -----------------------------------------------------------------------------
@@ -701,6 +739,64 @@ def fetch_reliability(days: int = 30) -> list[dict]:
     return rows
 
 
+def fetch_offline(days: int = 0) -> list[dict]:
+    """
+    Every active printer that is currently offline, longest outage first.
+    ``days`` is accepted for registry compatibility and ignored — this report
+    is a snapshot of "what is offline right now", not a windowed history.
+    """
+    from app.alerts.offline_review import agent_is_stale, offline_reference
+    now = datetime.utcnow()
+    rows = []
+    for p in _all_active_printers():
+        if p.is_online:
+            continue
+        ref = offline_reference(p)
+        days_off = ((now - ref).total_seconds() / 86400.0) if ref else 0.0
+        agent = p.agent if p.agent_id else None
+        rows.append({
+            "printer_id": p.id,
+            "printer_name": p.effective_name,
+            "ip_address": p.ip_address,
+            "model": p.model or "",
+            "serial": p.serial_number or "",
+            "location": p.location.name if p.location else "",
+            "assigned_person": p.assigned_person or "",
+            "source": agent.name if agent else "Server (VPN)",
+            "client_stale": agent_is_stale(agent),
+            "last_seen": p.last_seen_at,
+            "never_seen": p.last_seen_at is None,
+            "days_offline": max(0.0, days_off),
+            "ticket_sent": bool(p.offline_ticket_sent),
+        })
+    rows.sort(key=lambda r: -r["days_offline"])
+    return rows
+
+
+def fetch_stale_clients() -> list[dict]:
+    """Remote clients currently flagged stale, longest silence first."""
+    from app.models.remote_agent import RemoteAgent
+    now = datetime.utcnow()
+    rows = []
+    for a in db.session.query(RemoteAgent).filter_by(status="stale").all():
+        if a.last_checkin_at is None:
+            continue
+        rows.append({
+            "name": a.name,
+            "location": a.location.name if a.location else "",
+            "last_checkin": a.last_checkin_at,
+            "days_silent": (now - a.last_checkin_at).total_seconds() / 86400.0,
+            "printer_count": sum(1 for p in a.printers if p.is_active),
+            "ticket_sent": bool(a.stale_ticket_sent),
+        })
+    rows.sort(key=lambda r: -r["days_silent"])
+    return rows
+
+
+def _fmt_last_seen(r: dict) -> str:
+    return r["last_seen"].strftime("%Y-%m-%d %H:%M") + " UTC" if r["last_seen"] else "Never"
+
+
 # =============================================================================
 # Report registry — single source of truth used by the scheduled emailer
 # =============================================================================
@@ -797,6 +893,30 @@ REPORT_REGISTRY = [
             ("Location", "location"),
             ("Offline Events", "offline_count"),
             ("Online Now", lambda r: "Yes" if r["is_online"] else "No"),
+        ],
+    },
+    {
+        "key": "offline",
+        "title": "Offline Printers",
+        "path": "/reports/offline",
+        "fetcher": fetch_offline,
+        "csv_header": ["Printer", "IP Address", "Model", "Serial", "Location", "Person",
+                       "Monitored By", "Last Seen (UTC)", "Days Offline",
+                       "Review Ticket Sent", "Client Not Reporting"],
+        "csv_row": lambda r: [
+            r["printer_name"], r["ip_address"], r["model"], r["serial"],
+            r["location"], r["assigned_person"], r["source"],
+            r["last_seen"].strftime("%Y-%m-%d %H:%M") if r["last_seen"] else "Never",
+            f"{r['days_offline']:.1f}",
+            "Yes" if r["ticket_sent"] else "No",
+            "Yes" if r["client_stale"] else "No",
+        ],
+        "table_columns": [
+            ("Printer", "printer_name"),
+            ("Location", "location"),
+            ("Monitored By", "source"),
+            ("Last Seen", _fmt_last_seen),
+            ("Days Offline", lambda r: f"{r['days_offline']:.0f}"),
         ],
     },
 ]

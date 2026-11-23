@@ -303,6 +303,56 @@ scheduler.add_job(
 )
 
 
+# ---------------------------------------------------------------------------
+# Long-offline review tickets + stale-client tickets (hourly)
+# ---------------------------------------------------------------------------
+def _check_offline_review() -> None:
+    with app.app_context():
+        try:
+            from app.alerts.offline_review import run_offline_review
+            stats = run_offline_review(db.session)
+            if stats["printer_tickets"] or stats["agent_tickets"]:
+                logger.info("Offline review: %d printer ticket(s), %d client ticket(s)",
+                            stats["printer_tickets"], stats["agent_tickets"])
+        except Exception:
+            logger.exception("Error during offline review check")
+        finally:
+            db.session.remove()
+
+
+scheduler.add_job(
+    _check_offline_review,
+    trigger="interval",
+    hours=1,
+    id="offline_review_check",
+    replace_existing=True,
+)
+
+
+# ---------------------------------------------------------------------------
+# Daily automatic network scan of server-polled subnets
+# ---------------------------------------------------------------------------
+def _scheduled_auto_scan() -> None:
+    with app.app_context():
+        try:
+            from app.core.database import get_db
+            from app.scanner import auto_scan
+            if not auto_scan.is_enabled():
+                return
+            with get_db() as db_session:
+                auto_scan.run_auto_scan(db_session)
+        except Exception:
+            logger.exception("Error during daily auto-scan")
+        finally:
+            db.session.remove()
+
+
+with app.app_context():
+    from app.scanner import auto_scan as _auto_scan
+    _auto_scan.register(scheduler, _scheduled_auto_scan)
+    db.session.remove()
+
+
 scheduler.start()
 logger.info("Scheduler started. Poll interval: %d minutes", _interval)
 
