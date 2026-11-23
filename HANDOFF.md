@@ -64,6 +64,7 @@ bed; prod is the only deployment.
 | v0.0.29 | Duplicates view moved into Config | Feature was orphaned on the linkless `/printers` page |
 | v0.0.30 | **Agent temp-leak fix**: `_MEI` startup sweep, never-hard-exit service mode, 15-min restart interval | One site leaked **307 GB / 16,717 folders** in `C:\Windows\Temp` — crash-relaunch ~1/min × onefile extraction. Root crash cause never diagnosed (deliberate; hardened instead) |
 | v0.0.31 | Maintainer handoff docs (this file, CLAUDE.md rewrite) | Development moved to a new Claude Code account |
+| v0.0.32 | **Poll fix**: per-printer transactions, server poll skips agent printers, failure counter capped | From ~2026-10-05 scheduled polls + Poll All saved nothing: one transaction spanned the whole ~7-min poll, and MariaDB snapshot isolation (error 1020 "Record has changed since last read") rejected it whenever an agent check-in touched a printer row meanwhile — rolling back the entire batch |
 
 ## 4. Third-party integrations
 

@@ -183,7 +183,7 @@ def _update_printer_status(printer: Printer, data: PrinterData, db_session: Sess
         if data.vendor != "generic":
             printer.vendor = data.vendor
     else:
-        printer.consecutive_failures += 1
+        printer.consecutive_failures = min((printer.consecutive_failures or 0) + 1, 30000)
 
 
 def _run_alerts(printer: Printer, data: PrinterData, db_session: Session) -> None:
@@ -208,20 +208,73 @@ def poll_single_printer(printer_id: int, db_session: Session) -> None:
     _run_alerts(printer, data, db_session)
 
 
-def poll_all_printers(db_session: Session) -> None:
-    """Poll all active printers concurrently. Called by APScheduler."""
-    printers = db_session.query(Printer).filter_by(is_active=True).all()
-    if not printers:
-        logger.info("No active printers to poll.")
+# consecutive_failures is a SMALLINT (max 32767) — never let it overflow.
+_MAX_FAILURES = 30000
+
+
+def _bump_failures(printer: Printer) -> None:
+    printer.consecutive_failures = min((printer.consecutive_failures or 0) + 1, _MAX_FAILURES)
+
+
+def _save_poll_result(printer_id: int, data: PrinterData | None,
+                      detected_snmp_version: str | None, db_session: Session) -> None:
+    """
+    Persist one printer's poll result in its OWN short transaction.
+
+    The row is re-read fresh here (after the slow SNMP probe has finished) so
+    the transaction never spans the probe.  A failure rolls back only this
+    printer — it can never poison the rest of the batch.
+    """
+    printer = db_session.get(Printer, printer_id)
+    if not printer or not printer.is_active or printer.agent_id is not None:
         return
+    if data is None:
+        _bump_failures(printer)
+    else:
+        if detected_snmp_version:
+            printer.snmp_version = detected_snmp_version
+        _update_printer_status(printer, data, db_session)
+        _write_telemetry(printer, data, db_session)
+        _run_alerts(printer, data, db_session)
+    db_session.commit()
+
+
+def poll_all_printers(db_session: Session) -> None:
+    """
+    Poll all active LOCAL printers concurrently. Called by APScheduler and by
+    the dashboard's Poll All button.
+
+    Remote-agent printers (agent_id set) are skipped: the server cannot reach
+    them, and their agents report them via /api/agent/checkin.
+
+    v0.0.32: this used to hold ONE transaction open across the whole poll
+    (several minutes of SNMP probing).  MariaDB's snapshot isolation rejects
+    an UPDATE to any row another transaction changed in the meantime (error
+    1020 "Record has changed since last read") — e.g. an agent check-in — and
+    that single failure rolled back the entire batch.  Now nothing is held
+    open while probing and every printer is saved in its own transaction.
+    """
+    printers = (
+        db_session.query(Printer)
+        .filter(Printer.is_active.is_(True), Printer.agent_id.is_(None))
+        .all()
+    )
+    if not printers:
+        logger.info("No active local printers to poll.")
+        return
+
+    # Detach the loaded rows and end the read transaction BEFORE probing, so
+    # no DB snapshot/connection is held during the slow network phase.  The
+    # probe threads work on these detached copies only.
+    original_versions = {p.id: p.snmp_version for p in printers}
+    ips = {p.id: p.ip_address for p in printers}
+    db_session.expunge_all()
+    db_session.rollback()
 
     logger.info("Starting poll of %d printers with %d workers", len(printers), config.polling.poll_workers)
     start = datetime.utcnow()
 
-    # We can't share a single db_session across threads safely.
-    # Instead, collect results in thread and write in main thread.
-    results: dict[int, PrinterData] = {}
-
+    results: dict[int, PrinterData | None] = {}
     with ThreadPoolExecutor(max_workers=config.polling.poll_workers) as executor:
         future_to_printer = {executor.submit(_probe_printer, p): p for p in printers}
         for future in as_completed(future_to_printer):
@@ -229,21 +282,29 @@ def poll_all_printers(db_session: Session) -> None:
             try:
                 results[printer.id] = future.result()
             except Exception:
-                logger.exception("Probe failed for %s", printer.ip_address)
-                results[printer.id] = None  # type: ignore
+                logger.exception("Probe failed for %s", ips[printer.id])
+                results[printer.id] = None
 
-    # Write all results sequentially in the main thread
+    # Save sequentially, one short transaction per printer.
+    saved = failed = 0
     for printer in printers:
-        data = results.get(printer.id)
-        if data is None:
-            printer.consecutive_failures += 1
-            continue
-        try:
-            _update_printer_status(printer, data, db_session)
-            _write_telemetry(printer, data, db_session)
-            _run_alerts(printer, data, db_session)
-        except Exception:
-            logger.exception("Failed to write telemetry for %s", printer.ip_address)
+        pid = printer.id
+        data = results.get(pid)
+        # _probe_printer may have discovered the device only speaks SNMPv1
+        detected = printer.snmp_version if printer.snmp_version != original_versions[pid] else None
+        for attempt in (1, 2):
+            try:
+                _save_poll_result(pid, data, detected, db_session)
+                saved += 1
+                break
+            except Exception:
+                db_session.rollback()
+                if attempt == 2:
+                    failed += 1
+                    logger.exception("Failed to save poll result for %s", ips[pid])
+                else:
+                    logger.warning("Save conflict for %s — retrying once", ips[pid])
 
     elapsed = (datetime.utcnow() - start).total_seconds()
-    logger.info("Poll complete. %d printers in %.1fs", len(printers), elapsed)
+    logger.info("Poll complete. %d printers in %.1fs (%d saved, %d failed)",
+                len(printers), elapsed, saved, failed)
